@@ -149,3 +149,13 @@ What you see on HOME: the app, then about 0.3 s of black, then this home screen.
 | `src/.../Guard.java` | the HOME takeover described above |
 | `build.sh` | aapt2 → javac → d8 → zipalign → apksigner |
 | `install.sh` | download + checksum (or `--build`), install, accessibility setup, alarm constant, `--undo` |
+| `version.env` | the only place `VERSION` and `APK_SHA256` live; both scripts read it |
+| `release-check.sh` | proves version, built APK and GitHub release agree (`--local`, `--remote`, `--manifest`) |
+
+## Releasing
+
+1. Edit `version.env` (bump `VERSION`, `VERSION_CODE`, `VERSION_NAME`).
+2. `./build.sh`, then put the new SHA-256 in `version.env`.
+3. Upload `build/dumbtv-home.apk` to a release tagged `launcher-v<VERSION>`.
+4. `./launcher/release-check.sh` — it fails if the tag, the APK and the hash
+   disagree. CI runs `--manifest` on every push.

@@ -4,8 +4,8 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-VERSION_CODE=1
-VERSION_NAME=1.0
+# shellcheck disable=SC1091
+source version.env
 
 SDK=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/opt/homebrew/share/android-commandlinetools}}
 JAR=$SDK/platforms/android-28/android.jar

@@ -7,9 +7,9 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-VERSION=1.0
+# shellcheck disable=SC1091
+source version.env
 APK_URL=https://github.com/humblemuzzu/dumbtv/releases/download/launcher-v$VERSION/dumbtv-home.apk
-APK_SHA256=e87f2fae6f82449082d5039bbe72dd87b1f3369b7308362e54ca1b75e1b14a01
 
 PKG=tv.dumbtv.home
 GUARD=$PKG/$PKG.Guard
