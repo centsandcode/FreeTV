@@ -9,7 +9,32 @@ A home screen for Fire TV that does one job: show your apps and your HDMI inputs
   `aapt2 dump permissions build/dumbtv-home.apk`.
 - **No ads, no "recommended" rows, no account, no analytics, no update checks.**
 
-Measured on an Onida Fire TV Edition (Fire OS 7.7, 1.4 GB RAM):
+## Install (no Java, no SDK)
+
+You need `adb` and a TV with ADB debugging on (Settings → My Fire TV → About →
+click the device name 7 times, then Developer Options → ADB debugging).
+
+```sh
+adb connect <tv-ip>:5555         # accept "Allow USB debugging?" on the TV
+./launcher/install.sh            # downloads the APK, checks its SHA-256, installs, takes over HOME
+```
+
+That is all. The APK comes from this repo's
+[releases](https://github.com/humblemuzzu/dumbtv/releases/latest); the script
+refuses to install it if the checksum differs from the one pinned in
+`install.sh`. Prefer to install by hand? Download `dumbtv-home.apk` from the
+release and `adb install` it — but HOME only switches over after `install.sh`
+(or `scripts/launcher.sh`) has set up the accessibility service and the alarm
+setting described below.
+
+Undo: `./launcher/install.sh --undo` gives HOME back to Amazon's launcher.
+
+## Why not Projectivy
+
+This repo used to install Projectivy. It was replaced because it is closed source
+and asks for far more than a home screen needs: the advertising ID, ad
+attribution, Play install referrer, internet, notification access and package
+install/delete. Measured on an Onida Fire TV Edition (Fire OS 7.7, 1.4 GB RAM):
 
 | | dumbtv home | Projectivy 4.72 |
 |---|---|---|
@@ -19,25 +44,25 @@ Measured on an Onida Fire TV Edition (Fire OS 7.7, 1.4 GB RAM):
 | RAM, while an app plays | ~37 MB PSS | — |
 | HOME → home screen | 0.16–0.25 s | 3–6 s, Amazon's home shows first |
 
-## Install
+## Build it yourself
 
-```sh
-adb connect <tv-ip>:5555
-./launcher/install.sh            # builds, installs, takes over HOME
-./launcher/install.sh --undo     # gives HOME back (Projectivy if installed, else Amazon)
-```
-
-Building needs a JDK 17 and the Android SDK (`platforms;android-28`, `build-tools`):
+Needs a JDK 17 and the Android SDK (`platforms;android-28`, `build-tools`). No
+Gradle: `build.sh` calls aapt2, javac, d8, zipalign and apksigner directly.
 
 ```sh
 brew install openjdk@17
 brew install --cask android-commandlinetools
 sdkmanager "platforms;android-28" "build-tools;34.0.0"
 ./launcher/build.sh              # → launcher/build/dumbtv-home.apk
+./launcher/install.sh --build    # build, install, take over HOME
 ```
 
-`build.sh` creates `launcher/release.keystore` the first time it runs. Keep that file:
-updating the app needs the same key, and a new key means uninstalling first.
+On Linux set `JAVA_HOME` and `ANDROID_HOME`; the defaults are Homebrew's paths.
+
+`build.sh` creates `launcher/release.keystore` the first time it runs. Your build
+is signed with your key, the release with the project's, and Android will not
+update one with the other: `install.sh` says so and tells you to
+`adb uninstall tv.dumbtv.home` first (back up `home.conf` before, see below).
 
 ## Using it
 
@@ -80,7 +105,7 @@ background=black
 # 0 20 40 60 80, image background only
 dim=40
 apps.order=com.amazon.firetv.youtube,org.videolan.vlc
-apps.hide=com.spocky.projengmenu
+apps.hide=org.videolan.vlc
 apps.show=com.amazon.venezia
 inputs.hide=com.droidlogic.tvinput/.services.AV1InputService/HW1
 name.com.droidlogic.tvinput/.services.Hdmi2InputService/HW6=PS5
@@ -123,4 +148,4 @@ What you see on HOME: the app, then about 0.3 s of black, then this home screen.
 | `src/.../Options.java` | the settings screen |
 | `src/.../Guard.java` | the HOME takeover described above |
 | `build.sh` | aapt2 → javac → d8 → zipalign → apksigner |
-| `install.sh` | install, accessibility setup, alarm constant, `--undo` |
+| `install.sh` | download + checksum (or `--build`), install, accessibility setup, alarm constant, `--undo` |
