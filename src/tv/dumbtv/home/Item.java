@@ -1,0 +1,25 @@
+package tv.dumbtv.home;
+
+import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.graphics.drawable.Drawable;
+
+/** One tile: an installed app (id = package name) or a TV input (id = input id). */
+final class Item {
+    final String id;
+    final CharSequence label;
+    final Intent intent;
+    ActivityInfo info;
+    boolean leanback;
+    int state = -1;
+    volatile boolean artRequested;
+    /** Ambient glow color from the art, 0 until computed. */
+    int tint;
+    volatile Drawable banner, icon;
+
+    Item(String id, CharSequence label, Intent intent) {
+        this.id = id;
+        this.label = label;
+        this.intent = intent;
+    }
+}
