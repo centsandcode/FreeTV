@@ -159,7 +159,9 @@ public final class Home extends Activity {
         resumed = true;
         Guard.arrived(this);
         cfg.refresh();
+        cfg.visited();
         if (cfg.version() != applied) apply();
+        else background();
         IntentFilter f = new IntentFilter(Intent.ACTION_TIME_TICK);
         f.addAction(Intent.ACTION_TIME_CHANGED);
         f.addAction(Intent.ACTION_TIMEZONE_CHANGED);

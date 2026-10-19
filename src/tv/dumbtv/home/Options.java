@@ -48,6 +48,10 @@ public final class Options extends Activity {
         list.addView(title);
 
         for (Config.Choice c : Config.CHOICES) list.addView(choice(c));
+        list.addView(action("Next wallpaper", () -> {
+            cfg.nextWallpaper();
+            refresh();
+        }));
         list.addView(gap());
         list.addView(action("Apps on home screen", () -> pick(Catalog.APPS)));
         list.addView(action("Inputs on home screen", () -> pick(Catalog.INPUTS)));
@@ -62,6 +66,7 @@ public final class Options extends Activity {
         about.setPadding(dp(16), dp(28), 0, 0);
         about.setText("Settings file: " + cfg.dir + "/" + Config.FILE
                 + "\nWallpaper: put wallpaper.jpg in that folder, then pick Background › Image file"
+                + "\nSeveral wallpapers: put them in " + Config.WALLPAPERS + "/ and pick a rotation"
                 + "\nNo internet permission. No tracking, no ads, no accounts.");
         list.addView(about);
 
@@ -107,7 +112,8 @@ public final class Options extends Activity {
                 value.setText(focused ? "‹  " + text + "  ›" : text);
             }
             value.setTextColor(focused ? Ui.TEXT : Ui.MUTED);
-            boolean off = c == Config.DIM && !"image".equals(cfg.get(Config.BACKGROUND));
+            boolean off = (c == Config.DIM || c == Config.ROTATE)
+                    && !"image".equals(cfg.get(Config.BACKGROUND));
             row.setAlpha(off ? 0.4f : 1f);
         };
         row.setOnFocusChangeListener((v, has) -> show.run());

@@ -77,7 +77,8 @@ update one with the other: `install.sh` says so and tells you to
 
 **Options** cycles each setting with ◀ ▶ or OK: accent color, tile size, app names
 (on focus / always / never), clock format, inputs row, background (black, graphite,
-midnight, or an image) and image dim. It also lists which apps and inputs appear on
+midnight, or an image), image dim and wallpaper rotation, and **Next wallpaper**
+steps to the next image. It also lists which apps and inputs appear on
 the home screen. Apps without a TV banner, like the Appstore or Downloads, start
 hidden; tick them there to add them.
 
@@ -104,6 +105,8 @@ inputs=on
 background=black
 # 0 20 40 60 80, image background only
 dim=40
+# off visit hourly daily (visit = every return to the home screen)
+rotate=off
 apps.order=com.amazon.firetv.youtube,org.videolan.vlc
 apps.hide=org.videolan.vlc
 apps.show=com.amazon.venezia
@@ -115,7 +118,14 @@ Comments go on their own line; anything after `=` is the value.
 
 Back it up with `adb pull`, restore it with `adb push`. Hand edits apply the next
 time the home screen comes back. For a wallpaper, push `wallpaper.jpg` (or `.png`)
-into the same folder and set `background=image`.
+into the same folder and set `background=image`. For several, push them into a
+`wallpapers/` subfolder instead (`.jpg`, `.png` or `.webp`, shown in name order) and
+pick a rotation; while that folder has images, `wallpaper.jpg` is ignored.
+
+```sh
+adb shell mkdir -p /sdcard/Android/data/tv.dumbtv.home/files/wallpapers
+adb push *.jpg /sdcard/Android/data/tv.dumbtv.home/files/wallpapers/
+```
 
 ## How HOME works on Fire OS
 

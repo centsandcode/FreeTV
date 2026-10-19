@@ -15,10 +15,13 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 
 /**
  * All settings live in one plain {@code key=value} file in the app's external files dir,
@@ -69,7 +72,15 @@ final class Config {
             new String[] {"0", "20", "40", "60", "80"},
             new String[] {"0%", "20%", "40%", "60%", "80%"});
 
-    static final Choice[] CHOICES = {ACCENT, TILES, LABELS, CLOCK, INPUTS, BACKGROUND, DIM};
+    static final Choice ROTATE = new Choice("rotate", "Wallpaper rotation", "off",
+            new String[] {"off", "visit", "hourly", "daily"},
+            new String[] {"Off", "Every return home", "Every hour", "Every day"});
+
+    static final Choice[] CHOICES = {ACCENT, TILES, LABELS, CLOCK, INPUTS, BACKGROUND, DIM, ROTATE};
+
+    /** Folder of wallpapers, next to home.conf, that Background › Image file rotates through. */
+    static final String WALLPAPERS = "wallpapers";
+    private static final String OFFSET = "wallpaper.offset";
 
     private static final int[] ACCENTS = {
         0xFFFFFFFF, 0xFF3D8BFF, 0xFF2BC4E8, 0xFF34C759, 0xFFFFB340, 0xFFFF5147, 0xFFFF5C9D, 0xFFA07CFF,
@@ -83,6 +94,7 @@ final class Config {
     private final Map<String, String> values = new LinkedHashMap<>();
     private long signature = Long.MIN_VALUE;
     private int version;
+    private long visits;
 
     static Config get(Context c) {
         if (instance == null) instance = new Config(c.getApplicationContext());
@@ -198,7 +210,53 @@ final class Config {
         return BACKGROUNDS[Arrays.asList(BACKGROUND.values).indexOf(get(BACKGROUND))];
     }
 
+    /** Counts returns to the home screen, for the "visit" rotation. */
+    void visited() {
+        visits++;
+    }
+
+    /** Steps the rotation forward by one, so the next wallpaper shows now. */
+    void nextWallpaper() {
+        set(OFFSET, String.valueOf(offset() + 1));
+    }
+
+    private int offset() {
+        try {
+            return Integer.parseInt(get(OFFSET, "0"));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    List<File> wallpapers() {
+        List<File> out = new ArrayList<>();
+        File[] files = new File(dir, WALLPAPERS).listFiles();
+        if (files == null) return out;
+        for (File f : files) {
+            String n = f.getName().toLowerCase(Locale.ROOT);
+            if (f.isFile() && (n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png")
+                    || n.endsWith(".webp"))) {
+                out.add(f);
+            }
+        }
+        Collections.sort(out);
+        return out;
+    }
+
     File wallpaper() {
+        List<File> pool = wallpapers();
+        if (!pool.isEmpty()) {
+            long now = System.currentTimeMillis();
+            long step;
+            switch (get(ROTATE)) {
+                case "visit": step = visits; break;
+                case "hourly": step = now / 3_600_000L; break;
+                case "daily": step = (now + TimeZone.getDefault().getOffset(now)) / 86_400_000L; break;
+                default: step = 0;
+            }
+            int n = pool.size();
+            return pool.get((int) (((step + offset()) % n + n) % n));
+        }
         for (String name : new String[] {"wallpaper.jpg", "wallpaper.png", "wallpaper.webp"}) {
             File f = new File(dir, name);
             if (f.isFile()) return f;
