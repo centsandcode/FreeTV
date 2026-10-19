@@ -1,23 +1,37 @@
 package tv.dumbtv.home;
 
+import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.media.MediaMetadata;
+import android.media.session.MediaController;
+import android.media.session.MediaSessionManager;
+import android.media.session.PlaybackState;
 import android.media.tv.TvInputManager;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.StatFs;
 import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.text.style.RelativeSizeSpan;
 import android.view.Gravity;
@@ -36,30 +50,53 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class Home extends Activity {
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
+    private static final String HERO = "hero", RECENT = "recent", FAVS = "favs", ALL = "apps";
+    private static final int RECENT_SHOWN = 8;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final List<TextView> chips = new ArrayList<>();
+    private final List<TextView> headChips = new ArrayList<>();
+    private final List<Row> appRows = new ArrayList<>();
     private Config cfg;
     private TvInputManager tv;
     private int applied = -1, appsGeneration;
-    private boolean resumed, landed;
+    private boolean resumed, landed, toTop;
     private FrameLayout root;
+    private ScrollView page;
     private ImageView wall;
-    private View shade;
-    private TextView clock, date;
-    private Row apps, inputs;
+    private View shade, glow;
+    private TextView greeting, clock, date, stats;
+    private LinearLayout quick, appsBox;
+    private Row inputs;
+    private List<Item> appsAll = new ArrayList<>();
     private Tile moving;
     private String wallKey;
+
+    private LinearLayout heroBox;
+    private FrameLayout heroSlot;
+    private TextView heroName;
+    private Tile heroTile;
+
+    private int glowColor;
+    private ValueAnimator glowAnim;
+
+    private MediaSessionManager sessions;
+    private MediaController controller;
+    private LinearLayout playing;
+    private TextView playText, playToggle;
 
     private final BroadcastReceiver packages = new BroadcastReceiver() {
         @Override
@@ -98,18 +135,38 @@ public final class Home extends Activity {
         }
     };
 
+    private final MediaSessionManager.OnActiveSessionsChangedListener sessionWatch = this::pickSession;
+
+    private final MediaController.Callback mediaWatch = new MediaController.Callback() {
+        @Override
+        public void onPlaybackStateChanged(PlaybackState state) {
+            showPlaying();
+        }
+
+        @Override
+        public void onMetadataChanged(MediaMetadata metadata) {
+            showPlaying();
+        }
+
+        @Override
+        public void onSessionDestroyed() {
+            setController(null);
+        }
+    };
+
     private final class Row {
-        final String kind;
+        final String key, kind;
         final TextView title;
         final HorizontalScrollView scroll;
         final LinearLayout strip;
         List<Item> all = new ArrayList<>();
 
-        Row(String kind, String name, LinearLayout parent) {
+        Row(String key, String kind, String name, LinearLayout parent) {
+            this.key = key;
             this.kind = kind;
             int edge = dp(56), bleed = dp(14);
             title = Ui.text(Home.this, 12, Ui.FAINT, Ui.MEDIUM);
-            title.setText(name.toUpperCase(Locale.ROOT));
+            title.setText(name.toUpperCase(Locale.getDefault()));
             title.setLetterSpacing(0.14f);
             title.setPadding(edge, dp(20), edge, dp(2));
             strip = new LinearLayout(Home.this);
@@ -140,6 +197,7 @@ public final class Home extends Activity {
         super.onCreate(state);
         cfg = Config.get(this);
         tv = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
+        sessions = (MediaSessionManager) getSystemService(Context.MEDIA_SESSION_SERVICE);
         setContentView(build());
 
         IntentFilter f = new IntentFilter();
@@ -167,6 +225,11 @@ public final class Home extends Activity {
         f.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         registerReceiver(time, f);
         tick();
+        watchMedia(true);
+        if (toTop) {
+            toTop = false;
+            focusFirst();
+        }
     }
 
     @Override
@@ -179,6 +242,7 @@ public final class Home extends Activity {
         super.onPause();
         resumed = false;
         unregisterReceiver(time);
+        watchMedia(false);
         if (moving != null) stopMoving();
     }
 
@@ -211,7 +275,9 @@ public final class Home extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (moving != null) stopMoving();
+        // HOME lands at the top; when this arrives before onResume, onResume does it after re-rendering.
         if (resumed) focusFirst();
+        else toTop = true;
     }
 
     @Override
@@ -258,20 +324,27 @@ public final class Home extends Activity {
         root.addView(wall, new FrameLayout.LayoutParams(MATCH, MATCH));
         shade = new View(this);
         root.addView(shade, new FrameLayout.LayoutParams(MATCH, MATCH));
+        glow = new View(this);
+        glow.setVisibility(View.GONE);
+        root.addView(glow, new FrameLayout.LayoutParams(MATCH, MATCH));
 
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFocusable(false);
-        scroll.setFillViewport(true);
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        scroll.setClipChildren(false);
-        root.addView(scroll, new FrameLayout.LayoutParams(MATCH, MATCH));
+        page = new ScrollView(this);
+        page.setFocusable(false);
+        page.setFillViewport(true);
+        page.setVerticalScrollBarEnabled(false);
+        page.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        page.setClipChildren(false);
+        root.addView(page, new FrameLayout.LayoutParams(MATCH, MATCH));
 
         LinearLayout column = new LinearLayout(this) {
             @Override
             public View focusSearch(View focused, int direction) {
-                if (direction == View.FOCUS_DOWN && chips.contains(focused)) {
-                    View below = nearest(apps.strip, focused);
+                if (direction == View.FOCUS_DOWN && headChips.contains(focused)) {
+                    View below = quick.getVisibility() == View.VISIBLE ? nearest(quick, focused) : firstTile(focused);
+                    if (below != null) return below;
+                }
+                if (direction == View.FOCUS_DOWN && focused.getParent() == quick) {
+                    View below = firstTile(focused);
                     if (below != null) return below;
                 }
                 return super.focusSearch(focused, direction);
@@ -280,27 +353,127 @@ public final class Home extends Activity {
         column.setOrientation(LinearLayout.VERTICAL);
         column.setClipChildren(false);
         column.setClipToPadding(false);
-        column.setPadding(0, dp(40), 0, dp(32));
-        scroll.addView(column, new FrameLayout.LayoutParams(MATCH, WRAP));
+        column.setPadding(0, dp(34), 0, dp(32));
+        page.addView(column, new FrameLayout.LayoutParams(MATCH, WRAP));
 
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.TOP);
-        head.setPadding(dp(56), 0, dp(56), dp(12));
+        head.setPadding(dp(56), 0, dp(56), dp(8));
         LinearLayout when = new LinearLayout(this);
         when.setOrientation(LinearLayout.VERTICAL);
+        greeting = Ui.text(this, 16, Ui.MUTED, Ui.MEDIUM);
+        greeting.setPadding(dp(2), 0, 0, dp(6));
         clock = Ui.text(this, 52, Ui.TEXT, Ui.LIGHT);
         date = Ui.text(this, 15, Ui.MUTED, Ui.MEDIUM);
         date.setPadding(dp(2), dp(8), 0, 0);
+        stats = Ui.text(this, 12, Ui.FAINT, Ui.MEDIUM);
+        stats.setPadding(dp(2), dp(6), 0, 0);
+        when.addView(greeting);
         when.addView(clock);
         when.addView(date);
+        when.addView(stats);
         head.addView(when, new LinearLayout.LayoutParams(0, WRAP, 1f));
-        head.addView(chip("Options", v -> startActivity(new Intent(this, Options.class))));
-        head.addView(chip("Settings", v -> openSettings()));
+
+        LinearLayout side = new LinearLayout(this);
+        side.setOrientation(LinearLayout.VERTICAL);
+        side.setGravity(Gravity.END);
+        LinearLayout top = new LinearLayout(this);
+        top.addView(headChip(chip("Options", v -> startActivity(new Intent(this, Options.class)))));
+        top.addView(headChip(chip("Settings", v -> openSettings())));
+        side.addView(top);
+        playing = new LinearLayout(this);
+        playing.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        playing.setPadding(0, dp(14), 0, 0);
+        playing.setVisibility(View.GONE);
+        playText = Ui.text(this, 14, Ui.MUTED, Ui.MEDIUM);
+        playText.setSingleLine();
+        playText.setEllipsize(TextUtils.TruncateAt.END);
+        playText.setMaxWidth(dp(300));
+        playing.addView(playText);
+        playToggle = chip("", v -> toggleMedia());
+        playing.addView(spaced(playToggle, dp(12)));
+        playing.addView(spaced(chip(Ui.t("Next", "Siguiente"), v -> {
+            if (controller != null) controller.getTransportControls().skipToNext();
+        }), dp(8)));
+        side.addView(playing);
+        head.addView(side, new LinearLayout.LayoutParams(WRAP, WRAP));
         column.addView(head, new LinearLayout.LayoutParams(MATCH, WRAP));
 
-        apps = new Row(Catalog.APPS, "Apps", column);
-        inputs = new Row(Catalog.INPUTS, "Inputs", column);
+        quick = new LinearLayout(this);
+        quick.setPadding(dp(56), dp(4), dp(56), dp(4));
+        quick.setClipChildren(false);
+        quick.setClipToPadding(false);
+        addQuick(Ui.t("Wi-Fi", "Wi-Fi"), new Intent(Settings.ACTION_WIFI_SETTINGS));
+        addQuick(Ui.t("Display & sound", "Pantalla y sonido"), new Intent(Settings.ACTION_DISPLAY_SETTINGS));
+        addQuick(Ui.t("Remotes & Bluetooth", "Mandos y Bluetooth"), new Intent().setClassName(
+                "com.amazon.tv.settings.v2",
+                "com.amazon.tv.settings.v2.tv.controllers_bluetooth_devices.ControllersAndBluetoothActivity"));
+        addQuick(Ui.t("Apps", "Aplicaciones"), new Intent(Settings.ACTION_APPLICATION_SETTINGS));
+        column.addView(quick, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        heroBox = new LinearLayout(this);
+        heroBox.setGravity(Gravity.CENTER_VERTICAL);
+        heroBox.setPadding(dp(56), dp(18), dp(56), dp(4));
+        heroBox.setClipChildren(false);
+        heroBox.setClipToPadding(false);
+        heroSlot = new FrameLayout(this);
+        heroSlot.setClipChildren(false);
+        heroBox.addView(heroSlot, new LinearLayout.LayoutParams(WRAP, WRAP));
+        LinearLayout heroText = new LinearLayout(this);
+        heroText.setOrientation(LinearLayout.VERTICAL);
+        heroText.setPadding(dp(28), 0, 0, 0);
+        TextView heroLabel = Ui.text(this, 12, Ui.FAINT, Ui.MEDIUM);
+        heroLabel.setText(Ui.t("CONTINUE", "CONTINUAR"));
+        heroLabel.setLetterSpacing(0.14f);
+        heroName = Ui.text(this, 26, Ui.TEXT, Ui.LIGHT);
+        heroName.setPadding(0, dp(8), 0, dp(8));
+        TextView heroHint = Ui.text(this, 13, Ui.MUTED, Ui.MEDIUM);
+        heroHint.setText(Ui.t("Press OK to jump back in", "Pulsa OK para volver donde lo dejaste"));
+        heroText.addView(heroLabel);
+        heroText.addView(heroName);
+        heroText.addView(heroHint);
+        heroBox.addView(heroText, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        heroBox.setVisibility(View.GONE);
+        column.addView(heroBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        appsBox = new LinearLayout(this);
+        appsBox.setOrientation(LinearLayout.VERTICAL);
+        appsBox.setClipChildren(false);
+        appsBox.setClipToPadding(false);
+        column.addView(appsBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        inputs = new Row(Catalog.INPUTS, Catalog.INPUTS, "Inputs", column);
         return root;
+    }
+
+    private TextView headChip(TextView v) {
+        headChips.add(v);
+        return spaced(v, dp(10));
+    }
+
+    private static TextView spaced(TextView v, int left) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
+        lp.leftMargin = left;
+        v.setLayoutParams(lp);
+        return v;
+    }
+
+    private void addQuick(String label, Intent target) {
+        if (target.resolveActivity(getPackageManager()) == null) return;
+        TextView v = chip(label, c -> launch(new Intent(target), null));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
+        lp.rightMargin = dp(10);
+        lp.topMargin = dp(6);
+        quick.addView(v, lp);
+    }
+
+    /** The first tile under the header: the continue card, else the closest tile of the top row. */
+    private View firstTile(View from) {
+        if (heroTile != null && heroBox.getVisibility() == View.VISIBLE) return heroTile;
+        for (Row r : appRows) {
+            if (r.strip.getChildCount() > 0) return nearest(r.strip, from);
+        }
+        return inputs.strip.getChildCount() > 0 ? nearest(inputs.strip, from) : null;
     }
 
     /** The child of {@code strip} horizontally closest to {@code from}, or null when empty. */
@@ -332,10 +505,6 @@ public final class Home extends Activity {
         v.setOnClickListener(click);
         v.setOnFocusChangeListener((view, has) ->
                 view.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f).setDuration(110).start());
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
-        lp.leftMargin = dp(10);
-        lp.topMargin = dp(6);
-        v.setLayoutParams(lp);
         chips.add(v);
         return v;
     }
@@ -344,10 +513,15 @@ public final class Home extends Activity {
         applied = cfg.version();
         int accent = cfg.accent();
         for (TextView c : chips) Ui.focusStyle(c, accent, 0x14FFFFFF, dp(18));
-        render(apps);
+        quick.setVisibility(cfg.on(Config.QUICK) && quick.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+        greeting.setVisibility(cfg.on(Config.GREETING) ? View.VISIBLE : View.GONE);
+        stats.setVisibility(cfg.on(Config.STATS) ? View.VISIBLE : View.GONE);
+        if (!cfg.on(Config.AMBIENT)) glow.setVisibility(View.GONE);
+        renderApps();
         render(inputs);
         background();
         tick();
+        if (resumed) watchMedia(true);
     }
 
     /** Rebuilds the app list, keeping loaded art for every package except {@code changed}. */
@@ -358,16 +532,17 @@ public final class Home extends Activity {
             ui.post(() -> {
                 if (generation != appsGeneration || isDestroyed()) return;
                 for (Item fresh : list) {
-                    for (Item old : apps.all) {
+                    for (Item old : appsAll) {
                         if (old.id.equals(fresh.id) && !old.id.equals(changed) && old.artRequested) {
                             fresh.banner = old.banner;
                             fresh.icon = old.icon;
+                            fresh.tint = old.tint;
                             fresh.artRequested = true;
                         }
                     }
                 }
-                apps.all = list;
-                render(apps);
+                appsAll = list;
+                renderApps();
             });
         });
     }
@@ -377,6 +552,108 @@ public final class Home extends Activity {
         render(inputs);
     }
 
+    /** Continue card, favorites, recents, one row per group, then everything else. */
+    private void renderApps() {
+        if (moving != null && Catalog.APPS.equals(moving.kind)) stopMoving();
+        View focused = getCurrentFocus();
+        String keepRow = null, keepId = null;
+        if (focused instanceof Tile && Catalog.APPS.equals(((Tile) focused).kind)) {
+            keepId = ((Tile) focused).item.id;
+            keepRow = focused == heroTile ? HERO : rowOf((Tile) focused);
+        }
+
+        List<Item> base = Catalog.visible(cfg, Catalog.APPS, appsAll);
+        Map<String, Item> byId = new LinkedHashMap<>();
+        for (Item it : base) byId.put(it.id, it);
+
+        List<Item> recent = new ArrayList<>();
+        for (String id : cfg.recent()) {
+            Item it = byId.get(id);
+            if (it != null) recent.add(it);
+        }
+        Item hero = cfg.on(Config.HERO) && !recent.isEmpty() ? recent.remove(0) : null;
+        while (recent.size() > RECENT_SHOWN) recent.remove(recent.size() - 1);
+
+        int[] size = cardSize();
+        int w = size[0], h = size[1];
+        appsBox.removeAllViews();
+        appRows.clear();
+
+        heroSlot.removeAllViews();
+        heroTile = null;
+        if (hero != null) {
+            heroTile = tile(hero, Catalog.APPS, Math.round(w * 1.4f), Math.round(h * 1.4f), "never");
+            heroSlot.addView(heroTile);
+            heroName.setText(Catalog.label(cfg, hero));
+            if (!hero.artRequested) loadArt(hero);
+        }
+        heroBox.setVisibility(hero != null ? View.VISIBLE : View.GONE);
+
+        List<Item> favs = new ArrayList<>(), rest = new ArrayList<>();
+        Map<String, List<Item>> grouped = new LinkedHashMap<>();
+        for (String g : cfg.groups()) grouped.put(g, new ArrayList<>());
+        for (Item it : base) {
+            String g = cfg.groupOf(it.id);
+            if (cfg.favorite(it.id)) favs.add(it);
+            else if (g != null && grouped.containsKey(g)) grouped.get(g).add(it);
+            else rest.add(it);
+        }
+
+        addRow(FAVS, Ui.t("Favorites", "Favoritas"), favs, Math.round(w * 1.25f), Math.round(h * 1.25f));
+        if (cfg.on(Config.RECENTS)) addRow(RECENT, Ui.t("Recent", "Recientes"), recent, w, h);
+        for (Map.Entry<String, List<Item>> e : grouped.entrySet()) {
+            addRow("group:" + e.getKey(), e.getKey(), e.getValue(), w, h);
+        }
+        addRow(ALL, appRows.isEmpty() ? "Apps" : Ui.t("More apps", "Más apps"), rest, w, h);
+
+        View restore = null;
+        if (keepId != null) {
+            if (HERO.equals(keepRow) && heroTile != null && heroTile.item.id.equals(keepId)) restore = heroTile;
+            for (Row r : appRows) {
+                for (int i = 0; i < r.strip.getChildCount() && restore == null; i++) {
+                    Tile t = (Tile) r.strip.getChildAt(i);
+                    if (t.item.id.equals(keepId) && r.key.equals(keepRow)) restore = t;
+                }
+            }
+        }
+        if (restore != null) restore.requestFocus();
+        else if (keepId != null || getCurrentFocus() == null || !landed) focusFirst();
+    }
+
+    private void addRow(String key, String name, List<Item> items, int w, int h) {
+        if (items.isEmpty()) return;
+        Row row = new Row(key, Catalog.APPS, name, appsBox);
+        String labels = cfg.get(Config.LABELS);
+        for (Item it : items) {
+            Tile t = tile(it, Catalog.APPS, w, h, labels);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
+            lp.rightMargin = dp(18);
+            row.strip.addView(t, lp);
+            if (!it.artRequested) loadArt(it);
+        }
+        appRows.add(row);
+    }
+
+    private Tile tile(Item it, String kind, int w, int h, String labels) {
+        Tile t = new Tile(this, it, kind, Catalog.label(cfg, it), w, h, labels, cfg.accent());
+        t.setOnClickListener(v -> open((Tile) v));
+        t.setOnLongClickListener(v -> {
+            menu((Tile) v);
+            return true;
+        });
+        t.setOnFocusChangeListener((v, has) -> {
+            if (has) tint(((Tile) v).item);
+        });
+        return t;
+    }
+
+    private String rowOf(Tile t) {
+        for (Row r : appRows) {
+            if (t.getParent() == r.strip) return r.key;
+        }
+        return null;
+    }
+
     private void render(Row row) {
         if (moving != null && moving.kind.equals(row.kind)) stopMoving();
         View focused = getCurrentFocus();
@@ -384,26 +661,18 @@ public final class Home extends Activity {
                 ? ((Tile) focused).item.id : null;
         row.strip.removeAllViews();
 
-        boolean enabled = !Catalog.INPUTS.equals(row.kind) || "on".equals(cfg.get(Config.INPUTS));
+        boolean enabled = "on".equals(cfg.get(Config.INPUTS));
         List<Item> shown = enabled ? Catalog.visible(cfg, row.kind, row.all) : new ArrayList<>();
         int[] size = cardSize();
-        int w = size[0], h = Catalog.APPS.equals(row.kind) ? size[1] : Math.round(size[1] * 0.56f);
-        String labels = cfg.get(Config.LABELS);
-        int accent = cfg.accent();
+        int w = size[0], h = Math.round(size[1] * 0.56f);
         int index = 0, restore = -1;
         for (Item it : shown) {
-            Tile t = new Tile(this, it, row.kind, Catalog.label(cfg, it), w, h, labels, accent);
-            t.setOnClickListener(v -> open((Tile) v));
-            t.setOnLongClickListener(v -> {
-                menu((Tile) v);
-                return true;
-            });
+            Tile t = tile(it, row.kind, w, h, cfg.get(Config.LABELS));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
             lp.rightMargin = dp(18);
             row.strip.addView(t, lp);
             if (it.id.equals(keep)) restore = index;
             index++;
-            if (Catalog.APPS.equals(row.kind) && !it.artRequested) loadArt(it);
         }
         row.setVisible(!shown.isEmpty());
         if (restore >= 0) {
@@ -420,7 +689,12 @@ public final class Home extends Activity {
         io.execute(() -> {
             Catalog.art(getPackageManager(), it);
             ui.post(() -> {
-                for (int i = 0; i < apps.strip.getChildCount(); i++) apps.strip.getChildAt(i).invalidate();
+                if (heroTile != null) heroTile.invalidate();
+                for (Row r : appRows) {
+                    for (int i = 0; i < r.strip.getChildCount(); i++) r.strip.getChildAt(i).invalidate();
+                }
+                View f = getCurrentFocus();
+                if (f instanceof Tile && ((Tile) f).item == it) tint(it);
             });
         });
     }
@@ -437,11 +711,15 @@ public final class Home extends Activity {
     }
 
     private void focusFirst() {
-        apps.scroll.scrollTo(0, 0);
+        page.scrollTo(0, 0);
+        for (Row r : appRows) r.scroll.scrollTo(0, 0);
         inputs.scroll.scrollTo(0, 0);
-        View first = apps.strip.getChildAt(0);
+        View first = heroTile != null && heroBox.getVisibility() == View.VISIBLE ? heroTile : null;
+        for (Row r : appRows) {
+            if (first == null && r.strip.getChildCount() > 0) first = r.strip.getChildAt(0);
+        }
+        landed = first != null;
         if (first == null) first = inputs.strip.getChildAt(0);
-        landed = apps.strip.getChildCount() > 0;
         if (first == null) first = chips.get(0);
         first.requestFocus();
     }
@@ -460,6 +738,23 @@ public final class Home extends Activity {
         }
         Locale locale = Locale.getDefault();
         date.setText(DateFormat.format(DateFormat.getBestDateTimePattern(locale, "EEEEdMMMM"), now));
+        int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        greeting.setText(hour >= 6 && hour < 13 ? Ui.t("Good morning", "Buenos días")
+                : hour >= 13 && hour < 21 ? Ui.t("Good afternoon", "Buenas tardes")
+                : Ui.t("Good evening", "Buenas noches"));
+        if (cfg.on(Config.STATS)) stats.setText(stats());
+        background();
+    }
+
+    /** Free memory and free storage, read on demand: two cheap system calls, no polling. */
+    private String stats() {
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
+        am.getMemoryInfo(mi);
+        StatFs fs = new StatFs(Environment.getDataDirectory().getPath());
+        return String.format(Locale.getDefault(), "%s %d MB  ·  %s %.1f GB",
+                Ui.t("Free RAM", "RAM libre"), mi.availMem / (1024 * 1024),
+                Ui.t("Free storage", "Almacenamiento libre"), fs.getAvailableBytes() / 1e9);
     }
 
     private void background() {
@@ -496,6 +791,123 @@ public final class Home extends Activity {
         return BitmapFactory.decodeFile(f.getPath(), o);
     }
 
+    /** Fades a glow from the bottom edge to the focused app's own color. */
+    private void tint(Item it) {
+        if (!cfg.on(Config.AMBIENT)) return;
+        if (it.tint == 0) it.tint = colorOf(it);
+        if (it.tint == 0) return;
+        int from = glowColor == 0 ? it.tint : glowColor, to = it.tint;
+        if (glow.getVisibility() != View.VISIBLE) {
+            glow.setVisibility(View.VISIBLE);
+            from = to;
+        }
+        if (glowAnim != null) glowAnim.cancel();
+        glowAnim = ValueAnimator.ofArgb(from, to);
+        glowAnim.setDuration(450);
+        glowAnim.addUpdateListener(a -> paintGlow((int) a.getAnimatedValue()));
+        glowAnim.start();
+    }
+
+    private void paintGlow(int c) {
+        glowColor = c;
+        int rgb = c & 0x00FFFFFF;
+        glow.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                new int[] {0x99000000 | rgb, 0x33000000 | rgb, 0x00000000 | rgb}));
+    }
+
+    /** The banner's dominant hue, pushed to a calm, saturated glow; 0 while art is loading. */
+    private static int colorOf(Item it) {
+        Drawable d = it.banner != null ? it.banner : it.icon;
+        if (d == null) return 0;
+        Bitmap b = Bitmap.createBitmap(24, 14, Bitmap.Config.ARGB_8888);
+        Rect old = d.copyBounds();
+        d.setBounds(0, 0, 24, 14);
+        d.draw(new Canvas(b));
+        d.setBounds(old);
+        float[] hsv = new float[3];
+        double x = 0, y = 0, weight = 0, sat = 0;
+        for (int i = 0; i < 24; i++) {
+            for (int j = 0; j < 14; j++) {
+                int p = b.getPixel(i, j);
+                if (Color.alpha(p) < 128) continue;
+                Color.colorToHSV(p, hsv);
+                if (hsv[2] < 0.18f || hsv[1] < 0.2f) continue;
+                double wgt = hsv[1] * hsv[2];
+                x += Math.cos(Math.toRadians(hsv[0])) * wgt;
+                y += Math.sin(Math.toRadians(hsv[0])) * wgt;
+                sat += hsv[1] * wgt;
+                weight += wgt;
+            }
+        }
+        b.recycle();
+        if (weight == 0) return 0xFF5A6070;
+        float hue = (float) ((Math.toDegrees(Math.atan2(y, x)) + 360) % 360);
+        float s = Math.max(0.45f, Math.min(0.85f, (float) (sat / weight)));
+        return Color.HSVToColor(new float[] {hue, s, 0.62f});
+    }
+
+    private void watchMedia(boolean on) {
+        ComponentName me = new ComponentName(this, Media.class);
+        try {
+            sessions.removeOnActiveSessionsChangedListener(sessionWatch);
+            if (on && cfg.on(Config.PLAYING)) {
+                sessions.addOnActiveSessionsChangedListener(sessionWatch, me, ui);
+                pickSession(sessions.getActiveSessions(me));
+                return;
+            }
+        } catch (SecurityException e) {
+            // listener not enabled over ADB: the widget simply stays hidden
+        }
+        setController(null);
+    }
+
+    private void pickSession(List<MediaController> list) {
+        MediaController best = null;
+        if (list != null) {
+            for (MediaController c : list) {
+                PlaybackState s = c.getPlaybackState();
+                if (s != null && s.getState() == PlaybackState.STATE_PLAYING) {
+                    best = c;
+                    break;
+                }
+                if (best == null && c.getMetadata() != null) best = c;
+            }
+        }
+        setController(best);
+    }
+
+    private void setController(MediaController c) {
+        if (controller != null) controller.unregisterCallback(mediaWatch);
+        controller = c;
+        if (c != null) c.registerCallback(mediaWatch, ui);
+        showPlaying();
+    }
+
+    private void showPlaying() {
+        MediaMetadata m = controller == null ? null : controller.getMetadata();
+        PlaybackState s = controller == null ? null : controller.getPlaybackState();
+        String title = m == null ? null : m.getString(MediaMetadata.METADATA_KEY_TITLE);
+        boolean show = cfg.on(Config.PLAYING) && !TextUtils.isEmpty(title) && s != null
+                && (s.getState() == PlaybackState.STATE_PLAYING || s.getState() == PlaybackState.STATE_PAUSED);
+        if (!show) {
+            if (playing.hasFocus()) focusFirst();
+            playing.setVisibility(View.GONE);
+            return;
+        }
+        String artist = m.getString(MediaMetadata.METADATA_KEY_ARTIST);
+        playText.setText("♪  " + title + (TextUtils.isEmpty(artist) ? "" : "  ·  " + artist));
+        boolean on = s.getState() == PlaybackState.STATE_PLAYING;
+        playToggle.setText(on ? Ui.t("Pause", "Pausa") : Ui.t("Play", "Reanudar"));
+        playing.setVisibility(View.VISIBLE);
+    }
+
+    private void toggleMedia() {
+        if (controller == null) return;
+        PlaybackState s = controller.getPlaybackState();
+        if (s != null && s.getState() == PlaybackState.STATE_PLAYING) controller.getTransportControls().pause();
+        else controller.getTransportControls().play();
+    }
+
     /**
      * Fire OS answers the generic settings action with a stub that reopens Amazon's home, which
      * Guard then replaces with ours. The TV settings entry point opens the real settings screen.
@@ -508,7 +920,9 @@ public final class Home extends Activity {
     }
 
     private void open(Tile t) {
-        launch(new Intent(t.item.intent), Catalog.APPS.equals(t.kind) ? t.item.id : null);
+        boolean app = Catalog.APPS.equals(t.kind);
+        if (app) cfg.touch(t.item.id);
+        launch(new Intent(t.item.intent), app ? t.item.id : null);
     }
 
     private void launch(Intent i, String pkg) {
@@ -522,32 +936,88 @@ public final class Home extends Activity {
 
     private void menu(Tile t) {
         boolean app = Catalog.APPS.equals(t.kind);
-        String[] actions = app
-                ? new String[] {"Move", "Rename", "Hide", "App info"}
-                : new String[] {"Move", "Rename", "Hide"};
+        String row = t == heroTile ? HERO : rowOf(t);
+        boolean movable = !HERO.equals(row) && !RECENT.equals(row);
+        List<String> names = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        if (movable) {
+            names.add("Move");
+            actions.add(() -> {
+                if (t.getParent() == null) return;
+                moving = t;
+                t.setMoving(true);
+            });
+        }
+        if (app) {
+            boolean fav = cfg.favorite(t.item.id);
+            names.add(fav ? Ui.t("Remove from favorites", "Quitar de favoritas")
+                    : Ui.t("Add to favorites", "Añadir a favoritas"));
+            actions.add(() -> {
+                cfg.setFavorite(t.item.id, !fav);
+                apply();
+            });
+            names.add(Ui.t("Category…", "Categoría…"));
+            actions.add(() -> pickGroup(t.item));
+        }
+        names.add("Rename");
+        actions.add(() -> rename(t));
+        names.add("Hide");
+        actions.add(() -> {
+            Catalog.setShown(cfg, t.kind, t.item, false);
+            if (app) renderApps();
+            else render(inputs);
+            Toast.makeText(this, "Hidden. Bring it back from Options.", Toast.LENGTH_SHORT).show();
+        });
+        if (app) {
+            names.add("App info");
+            actions.add(() -> launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", t.item.id, null)), null));
+        }
         new AlertDialog.Builder(this, Ui.DIALOG)
                 .setTitle(Catalog.label(cfg, t.item))
-                .setItems(actions, (d, which) -> {
-                    switch (which) {
-                        case 0:
-                            if (t.getParent() == null) break;
-                            moving = t;
-                            t.setMoving(true);
-                            break;
-                        case 1:
-                            rename(t);
-                            break;
-                        case 2:
-                            Catalog.setShown(cfg, t.kind, t.item, false);
-                            render(app ? apps : inputs);
-                            Toast.makeText(this, "Hidden. Bring it back from Options.", Toast.LENGTH_SHORT).show();
-                            break;
-                        default:
-                            launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    Uri.fromParts("package", t.item.id, null)), null);
+                .setItems(names.toArray(new String[0]), (d, which) -> actions.get(which).run())
+                .show();
+    }
+
+    private void pickGroup(Item it) {
+        List<String> groups = cfg.groups();
+        String current = cfg.groupOf(it.id);
+        List<String> names = new ArrayList<>(groups);
+        names.add(Ui.t("New category…", "Nueva categoría…"));
+        if (current != null) names.add(Ui.t("No category", "Sin categoría"));
+        new AlertDialog.Builder(this, Ui.DIALOG)
+                .setTitle(Ui.t("Category", "Categoría"))
+                .setItems(names.toArray(new String[0]), (d, which) -> {
+                    if (which < groups.size()) {
+                        cfg.setGroup(it.id, groups.get(which));
+                        apply();
+                    } else if (which == groups.size()) {
+                        newGroup(it);
+                    } else {
+                        cfg.setGroup(it.id, null);
+                        apply();
                     }
                 })
                 .show();
+    }
+
+    private void newGroup(Item it) {
+        EditText field = new EditText(this);
+        field.setSingleLine();
+        FrameLayout box = new FrameLayout(this);
+        box.setPadding(dp(24), dp(8), dp(24), 0);
+        box.addView(field);
+        AlertDialog d = new AlertDialog.Builder(this, Ui.DIALOG)
+                .setTitle(Ui.t("New category", "Nueva categoría"))
+                .setView(box)
+                .setPositiveButton(Ui.t("Create", "Crear"), (dialog, w) -> {
+                    cfg.setGroup(it.id, field.getText().toString());
+                    apply();
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+        d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        d.show();
     }
 
     private void rename(Tile t) {

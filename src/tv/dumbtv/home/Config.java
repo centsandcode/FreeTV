@@ -15,6 +15,7 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -73,10 +74,97 @@ final class Config {
             new String[] {"0%", "20%", "40%", "60%", "80%"});
 
     static final Choice ROTATE = new Choice("rotate", "Wallpaper rotation", "off",
-            new String[] {"off", "visit", "hourly", "daily"},
-            new String[] {"Off", "Every return home", "Every hour", "Every day"});
+            new String[] {"off", "visit", "hourly", "daily", "daytime"},
+            new String[] {"Off", "Every return home", "Every hour", "Every day", "By time of day"});
+    static final Choice HERO = onOff("hero", "Continue card");
+    static final Choice RECENTS = onOff("recents", "Recent apps row");
+    static final Choice GREETING = onOff("greeting", "Greeting");
+    static final Choice STATS = onOff("stats", "Free memory and storage");
+    static final Choice QUICK = onOff("quick", "Quick settings");
+    static final Choice AMBIENT = onOff("ambient", "Ambient color");
+    static final Choice PLAYING = onOff("playing", "Now playing");
 
-    static final Choice[] CHOICES = {ACCENT, TILES, LABELS, CLOCK, INPUTS, BACKGROUND, DIM, ROTATE};
+    static final Choice[] CHOICES = {ACCENT, TILES, LABELS, CLOCK, INPUTS, BACKGROUND, DIM, ROTATE,
+        HERO, RECENTS, GREETING, STATS, QUICK, AMBIENT, PLAYING};
+
+    private static Choice onOff(String key, String title) {
+        return new Choice(key, title, "on", new String[] {"on", "off"}, new String[] {"On", "Off"});
+    }
+
+    boolean on(Choice c) {
+        return "on".equals(get(c));
+    }
+
+    private static final String RECENT = "recent";
+    private static final int RECENT_MAX = 10;
+    static final String FAVORITES = "apps.fav";
+    private static final String GROUPS = "groups";
+
+    /** Puts {@code pkg} first in the recent list; a no-op when it already is. */
+    void touch(String pkg) {
+        List<String> recent = list(RECENT);
+        if (!recent.isEmpty() && recent.get(0).equals(pkg)) return;
+        recent.remove(pkg);
+        recent.add(0, pkg);
+        while (recent.size() > RECENT_MAX) recent.remove(recent.size() - 1);
+        setList(RECENT, recent);
+    }
+
+    List<String> recent() {
+        return list(RECENT);
+    }
+
+    boolean favorite(String id) {
+        return list(FAVORITES).contains(id);
+    }
+
+    void setFavorite(String id, boolean on) {
+        List<String> favs = list(FAVORITES);
+        favs.remove(id);
+        if (on) favs.add(id);
+        setList(FAVORITES, favs);
+    }
+
+    List<String> groups() {
+        return list(GROUPS);
+    }
+
+    List<String> group(String name) {
+        return list("group." + name);
+    }
+
+    String groupOf(String id) {
+        for (String g : groups()) {
+            if (group(g).contains(id)) return g;
+        }
+        return null;
+    }
+
+    /** Moves {@code id} into {@code name} (null: no group); groups left empty are dropped. */
+    void setGroup(String id, String name) {
+        List<String> names = groups();
+        if (name != null) {
+            name = name.replaceAll("[,=\\r\\n]", " ").trim();
+            if (name.isEmpty()) name = null;
+        }
+        for (String g : new ArrayList<>(names)) {
+            List<String> members = group(g);
+            if (members.remove(id) || g.equals(name)) {
+                if (g.equals(name)) members.add(id);
+                if (members.isEmpty()) {
+                    names.remove(g);
+                    values.remove("group." + g);
+                } else {
+                    values.put("group." + g, String.join(",", members));
+                }
+            }
+        }
+        if (name != null && !names.contains(name)) {
+            names.add(name);
+            values.put("group." + name, id);
+        }
+        setList(GROUPS, names);
+    }
 
     /** Folder of wallpapers, next to home.conf, that Background › Image file rotates through. */
     static final String WALLPAPERS = "wallpapers";
@@ -228,6 +316,39 @@ final class Config {
         }
     }
 
+    /** 0 morning (6-13 h), 1 afternoon (13-20 h), 2 night. */
+    static int period() {
+        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        return h >= 6 && h < 13 ? 0 : h >= 13 && h < 20 ? 1 : 2;
+    }
+
+    private static final String[][] PERIOD_WORDS = {
+        {"morning", "day", "manana", "dia"},
+        {"afternoon", "evening", "tarde"},
+        {"night", "noche"},
+    };
+
+    /**
+     * Files whose name carries a word for {@code period}; empty when others are tagged but not
+     * this one, null when no file is tagged at all (then the period just indexes the pool).
+     */
+    private static List<File> forPeriod(List<File> pool, int period) {
+        List<File> fit = new ArrayList<>();
+        boolean tagged = false;
+        for (File f : pool) {
+            String n = f.getName().toLowerCase(Locale.ROOT);
+            for (int p = 0; p < PERIOD_WORDS.length; p++) {
+                for (String w : PERIOD_WORDS[p]) {
+                    if (n.contains(w)) {
+                        tagged = true;
+                        if (p == period && !fit.contains(f)) fit.add(f);
+                    }
+                }
+            }
+        }
+        return tagged ? fit : null;
+    }
+
     List<File> wallpapers() {
         List<File> out = new ArrayList<>();
         File[] files = new File(dir, WALLPAPERS).listFiles();
@@ -248,7 +369,15 @@ final class Config {
         if (!pool.isEmpty()) {
             long now = System.currentTimeMillis();
             long step;
-            switch (get(ROTATE)) {
+            String mode = get(ROTATE);
+            if ("daytime".equals(mode)) {
+                int period = period();
+                List<File> fit = forPeriod(pool, period);
+                if (fit == null) return pool.get(period % pool.size());
+                if (!fit.isEmpty()) pool = fit;
+                mode = "visit";
+            }
+            switch (mode) {
                 case "visit": step = visits; break;
                 case "hourly": step = now / 3_600_000L; break;
                 case "daily": step = (now + TimeZone.getDefault().getOffset(now)) / 86_400_000L; break;

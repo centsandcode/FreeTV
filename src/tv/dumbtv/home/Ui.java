@@ -9,6 +9,8 @@ import android.graphics.drawable.StateListDrawable;
 import android.util.TypedValue;
 import android.widget.TextView;
 
+import java.util.Locale;
+
 final class Ui {
     static final int TEXT = 0xFFF2F2F3;
     static final int MUTED = 0x99FFFFFF;
@@ -18,7 +20,14 @@ final class Ui {
     static final Typeface LIGHT = Typeface.create("sans-serif-light", Typeface.NORMAL);
     static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
 
+    private static final boolean ES = "es".equals(Locale.getDefault().getLanguage());
+
     private Ui() {}
+
+    /** The Spanish text on a Spanish-language TV, the English one elsewhere. */
+    static String t(String en, String es) {
+        return ES ? es : en;
+    }
 
     static int dp(Context c, float v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);

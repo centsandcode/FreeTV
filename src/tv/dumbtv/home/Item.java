@@ -13,6 +13,8 @@ final class Item {
     boolean leanback;
     int state = -1;
     volatile boolean artRequested;
+    /** Ambient glow color from the art, 0 until computed. */
+    int tint;
     volatile Drawable banner, icon;
 
     Item(String id, CharSequence label, Intent intent) {
