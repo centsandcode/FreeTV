@@ -16,8 +16,12 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.TransitionDrawable;
+import android.view.animation.DecelerateInterpolator;
 import android.graphics.drawable.GradientDrawable;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
@@ -80,7 +84,8 @@ public final class Home extends Activity {
     private FrameLayout root;
     private ScrollView page;
     private ImageView wall;
-    private View shade, glow;
+    private View glow;
+    private GradientDrawable glowDrawable;
     private TextView greeting, clock, date, stats;
     private LinearLayout column, quick, quickBox, appsBox;
     private String tab = TAB_HOME;
@@ -213,6 +218,7 @@ public final class Home extends Activity {
         tv = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
         sessions = (MediaSessionManager) getSystemService(Context.MEDIA_SESSION_SERVICE);
         setContentView(build());
+        getWindow().setBackgroundDrawable(null);
 
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -243,6 +249,7 @@ public final class Home extends Activity {
         if (toTop) {
             toTop = false;
             focusFirst();
+            enter();
         }
     }
 
@@ -337,11 +344,13 @@ public final class Home extends Activity {
         wall = new ImageView(this);
         wall.setScaleType(ImageView.ScaleType.CENTER_CROP);
         root.addView(wall, new FrameLayout.LayoutParams(MATCH, MATCH));
-        shade = new View(this);
-        root.addView(shade, new FrameLayout.LayoutParams(MATCH, MATCH));
+        // the glow only covers the lower half: every full-screen layer costs a fill per frame on this GPU
         glow = new View(this);
         glow.setVisibility(View.GONE);
-        root.addView(glow, new FrameLayout.LayoutParams(MATCH, MATCH));
+        glowDrawable = new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[] {0, 0});
+        glow.setBackground(glowDrawable);
+        root.addView(glow, new FrameLayout.LayoutParams(MATCH,
+                getResources().getDisplayMetrics().heightPixels * 3 / 5, Gravity.BOTTOM));
 
         LinearLayout frame = new LinearLayout(this) {
             @Override
@@ -760,6 +769,27 @@ public final class Home extends Activity {
         }
         if (restore != null) restore.requestFocus();
         else if (keepId != null || getCurrentFocus() == null || !landed) focusFirst();
+        if (restore == null) enter();
+    }
+
+    /** The continue card and each row fade in and rise into place, one after another. */
+    private void enter() {
+        List<View> parts = new ArrayList<>();
+        if (heroBox.getVisibility() == View.VISIBLE) parts.add(heroBox);
+        for (Row r : appRows) {
+            parts.add(r.title);
+            parts.add(r.scroll);
+        }
+        int rise = dp(28), i = 0;
+        for (View v : parts) {
+            v.animate().cancel();
+            v.setAlpha(0f);
+            v.setTranslationY(rise);
+            v.animate().alpha(1f).translationY(0f).withLayer()
+                    .setStartDelay(40L * i++).setDuration(380)
+                    .setInterpolator(new DecelerateInterpolator(2f))
+                    .start();
+        }
     }
 
     private void addRow(String key, String name, List<Item> items, int w, int h) {
@@ -778,7 +808,7 @@ public final class Home extends Activity {
 
     private Tile tile(Item it, String kind, int w, int h, String labels) {
         Tile t = new Tile(this, it, kind, Catalog.label(cfg, it), w, h, labels, cfg.accent());
-        t.setOnClickListener(v -> open((Tile) v));
+        t.setOnClickListener(v -> ((Tile) v).press(() -> open((Tile) v)));
         t.setOnLongClickListener(v -> {
             menu((Tile) v);
             return true;
@@ -902,13 +932,14 @@ public final class Home extends Activity {
     private void background() {
         boolean image = "image".equals(cfg.get(Config.BACKGROUND));
         File file = image ? cfg.wallpaper() : null;
-        root.setBackgroundColor(cfg.background());
         int dim = Integer.parseInt(cfg.get(Config.DIM));
-        shade.setBackgroundColor(file == null ? Color.TRANSPARENT : Color.argb(dim * 255 / 100, 0, 0, 0));
+        // the dim is a color filter on the image itself rather than a separate full-screen layer
+        wall.setColorFilter(Color.argb(dim * 255 / 100, 0, 0, 0), PorterDuff.Mode.SRC_ATOP);
         String key = file == null ? null : file.getPath() + ":" + file.lastModified();
         if (key == null ? wallKey == null : key.equals(wallKey)) return;
         wallKey = key;
         if (file == null) {
+            root.setBackgroundColor(cfg.background());
             wall.setImageDrawable(null);
             return;
         }
@@ -916,7 +947,23 @@ public final class Home extends Activity {
             Bitmap b = decode(file, getResources().getDisplayMetrics().widthPixels,
                     getResources().getDisplayMetrics().heightPixels);
             ui.post(() -> {
-                if (key.equals(wallKey)) wall.setImageBitmap(b);
+                if (!key.equals(wallKey) || b == null) return;
+                Drawable old = wall.getDrawable();
+                // keep only the image on screen, so cross-fades never stack up
+                if (old instanceof TransitionDrawable) old = ((TransitionDrawable) old).getDrawable(1);
+                Drawable fresh = new BitmapDrawable(getResources(), b);
+                // the image covers the screen: the color underneath would only be overdraw
+                root.setBackground(null);
+                if (old == null) {
+                    wall.setImageDrawable(fresh);
+                    wall.setAlpha(0f);
+                    wall.animate().alpha(1f).setDuration(600).start();
+                } else {
+                    TransitionDrawable swap = new TransitionDrawable(new Drawable[] {old, fresh});
+                    swap.setCrossFadeEnabled(true);
+                    wall.setImageDrawable(swap);
+                    swap.startTransition(700);
+                }
             });
         });
     }
@@ -953,8 +1000,7 @@ public final class Home extends Activity {
     private void paintGlow(int c) {
         glowColor = c;
         int rgb = c & 0x00FFFFFF;
-        glow.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
-                new int[] {0x99000000 | rgb, 0x33000000 | rgb, 0x00000000 | rgb}));
+        glowDrawable.setColors(new int[] {0x99000000 | rgb, 0x33000000 | rgb, rgb});
     }
 
     /** The banner's dominant hue, pushed to a calm, saturated glow; 0 while art is loading. */

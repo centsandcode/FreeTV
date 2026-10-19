@@ -1,5 +1,6 @@
 package tv.dumbtv.home;
 
+import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.DashPathEffect;
@@ -12,6 +13,8 @@ import android.media.tv.TvInputManager;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.view.View;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.OvershootInterpolator;
 
 /** A card drawn in one pass: banner, or icon plus name, or an input name; focus ring on top. */
 final class Tile extends View {
@@ -32,6 +35,9 @@ final class Tile extends View {
     private final TextPaint inner = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint under = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private boolean moving;
+    /** 0 unfocused to 1 focused, animated: drives the ring and the label fade. */
+    private float focusLevel;
+    private ValueAnimator focusAnim;
 
     Tile(Context c, Item item, String kind, CharSequence title, int cardW, int cardH,
             String labels, int accent) {
@@ -91,8 +97,31 @@ final class Tile extends View {
     protected void onFocusChanged(boolean focused, int direction, Rect previous) {
         super.onFocusChanged(focused, direction, previous);
         float s = focused ? FOCUS_SCALE : 1f;
-        animate().scaleX(s).scaleY(s).setDuration(110).start();
-        invalidate();
+        animate().scaleX(s).scaleY(s).translationZ(focused ? Ui.dp(getContext(), 8) : 0)
+                .setDuration(focused ? 240 : 180)
+                .setInterpolator(focused ? new OvershootInterpolator(1.6f) : new DecelerateInterpolator())
+                .start();
+        if (focusAnim != null) focusAnim.cancel();
+        focusAnim = ValueAnimator.ofFloat(focusLevel, focused ? 1f : 0f);
+        focusAnim.setDuration(200);
+        focusAnim.addUpdateListener(a -> {
+            focusLevel = (float) a.getAnimatedValue();
+            invalidate();
+        });
+        focusAnim.start();
+    }
+
+    /** Sinks the card for a moment, then runs {@code then}: the press is felt before the app opens. */
+    void press(Runnable then) {
+        float s = isFocused() ? FOCUS_SCALE : 1f;
+        animate().scaleX(s * 0.92f).scaleY(s * 0.92f).setDuration(90)
+                .setInterpolator(new DecelerateInterpolator())
+                .withEndAction(() -> {
+                    animate().scaleX(s).scaleY(s).setDuration(160)
+                            .setInterpolator(new OvershootInterpolator(2f)).start();
+                    then.run();
+                })
+                .start();
     }
 
     @Override
@@ -120,14 +149,16 @@ final class Tile extends View {
             float r = Ui.dp(getContext(), 3.5f);
             canvas.drawCircle(cardW - r * 3, r * 3, r, dot);
         }
-        if (isFocused() || moving) {
+        if (focusLevel > 0.01f || moving) {
             float half = stroke / 2;
             ring.setPathEffect(moving ? new DashPathEffect(new float[] {stroke * 3, stroke * 2}, 0) : null);
+            ring.setAlpha(moving ? 255 : Math.round(255 * focusLevel));
             canvas.drawRoundRect(half, half, cardW - half, cardH - half, radius - half, radius - half, ring);
         }
         if (moving) drawArrows(canvas);
-        boolean label = banner != null && (labelAlways || labelOnFocus && isFocused());
-        if (labelH > 0 && label) {
+        float labelAlpha = labelAlways ? 1f : labelOnFocus ? focusLevel : 0f;
+        if (labelH > 0 && banner != null && labelAlpha > 0.01f) {
+            under.setAlpha(Math.round(255 * labelAlpha));
             drawLine(canvas, under, cardW / 2f, cardH + labelH - Ui.dp(getContext(), 6));
         }
     }
