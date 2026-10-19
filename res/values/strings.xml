@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">dumbtv</string>
-    <string name="guard_label">dumbtv home button</string>
-    <string name="media_label">dumbtv now playing</string>
-    <string name="guard_description">Sends the HOME button to the dumbtv home screen instead of Amazon\'s. It reads no screen content and has no internet access.</string>
+    <string name="app_name">FreeTV</string>
+    <string name="guard_label">FreeTV home button</string>
+    <string name="media_label">FreeTV now playing</string>
+    <string name="guard_description">Sends the HOME button to the FreeTV home screen instead of Amazon\'s. It reads no screen content and has no internet access.</string>
 </resources>

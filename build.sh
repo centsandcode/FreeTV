@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds launcher/build/dumbtv-home.apk from the bare SDK tools: no Gradle, no libraries.
+# Builds build/freetv.apk from the bare SDK tools: no Gradle, no libraries.
 # Needs a JDK 17+ and an Android SDK with platforms;android-28 and any build-tools.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -23,15 +23,17 @@ fi
 [[ -x ${JAVA_HOME:-}/bin/javac ]] || { echo "error: no JDK found — brew install openjdk@17" >&2; exit 1; }
 export JAVA_HOME
 
-KEYSTORE=${DUMBTV_KEYSTORE:-$PWD/release.keystore}
-KEYPASS=${DUMBTV_KEYPASS:-dumbtvhome}
+# Your own signing key, created on the first build. Keep it and never commit it:
+# updates must be signed with the same key.
+KEYSTORE=${FREETV_KEYSTORE:-$PWD/release.keystore}
+KEYPASS=${FREETV_KEYPASS:-freetvhome}
 if [[ ! -f $KEYSTORE ]]; then
   "$JAVA_HOME/bin/keytool" -genkeypair -keystore "$KEYSTORE" -alias home -keyalg RSA -keysize 2048 \
-    -validity 10000 -storepass "$KEYPASS" -keypass "$KEYPASS" -dname "CN=dumbtv home" >/dev/null
+    -validity 10000 -storepass "$KEYPASS" -keypass "$KEYPASS" -dname "CN=FreeTV" >/dev/null
   echo "created signing key $KEYSTORE (keep it: updates must be signed with the same key)"
 fi
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/dumbtv-home.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/freetv.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/gen" "$WORK/classes" build
 
@@ -51,9 +53,9 @@ find "$WORK/classes" -name '*.class' > "$WORK/classes.txt"
 
 "$BT/zipalign" -f -p 4 "$WORK/app.apk" "$WORK/aligned.apk"
 "$BT/apksigner" sign --ks "$KEYSTORE" --ks-pass "pass:$KEYPASS" --key-pass "pass:$KEYPASS" \
-  --out build/dumbtv-home.apk "$WORK/aligned.apk"
-"$BT/apksigner" verify build/dumbtv-home.apk
+  --out build/freetv.apk "$WORK/aligned.apk"
+"$BT/apksigner" verify build/freetv.apk
 
-perms=$("$BT/aapt2" dump permissions build/dumbtv-home.apk | grep -c 'uses-permission' || true)
-printf 'built build/dumbtv-home.apk  %s bytes  %s uses-permission entries\n' \
-  "$(wc -c < build/dumbtv-home.apk | tr -d ' ')" "$perms"
+perms=$("$BT/aapt2" dump permissions build/freetv.apk | grep -c 'uses-permission' || true)
+printf 'built build/freetv.apk  %s bytes  %s uses-permission entries\n' \
+  "$(wc -c < build/freetv.apk | tr -d ' ')" "$perms"

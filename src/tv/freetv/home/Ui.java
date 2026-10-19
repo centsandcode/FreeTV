@@ -1,4 +1,4 @@
-package tv.dumbtv.home;
+package tv.freetv.home;
 
 import android.content.Context;
 import android.content.res.ColorStateList;

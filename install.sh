@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
-# Installs dumbtv home on the TV and gives it the HOME button.
-#   ./launcher/install.sh            download the release APK (checksum-verified), install, take over HOME
-#   ./launcher/install.sh --build    build from source instead (needs a JDK and the Android SDK)
-#   ./launcher/install.sh --undo     hand HOME back to Amazon's launcher
+# Installs FreeTV on the TV and gives it the HOME button.
+#   ./install.sh            the release APK (checksum-verified) when one is published, else build from source
+#   ./install.sh --build    build from source (needs a JDK and the Android SDK)
+#   ./install.sh --undo     hand HOME back to Amazon's launcher
 # Pick the device with ADB_SERIAL when more than one is connected.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # shellcheck disable=SC1091
 source version.env
-APK_URL=https://github.com/humblemuzzu/dumbtv/releases/download/launcher-v$VERSION/dumbtv-home.apk
+APK_URL=https://github.com/centsandcode/FreeTV/releases/download/v$VERSION/freetv.apk
 
-PKG=tv.dumbtv.home
+PKG=tv.freetv.home
 GUARD=$PKG/$PKG.Guard
-OLD_GUARD=com.spocky.projengmenu/com.spocky.projengmenu.services.ProjectivyAccessibilityService
+MEDIA=$PKG/$PKG.Media
+# launchers that took HOME the same way before: their service is swapped for ours
+OLD_GUARDS=(
+  tv.dumbtv.home/tv.dumbtv.home.Guard
+  com.spocky.projengmenu/com.spocky.projengmenu.services.ProjectivyAccessibilityService
+)
 ADB=${ADB:-adb}
 
 adb_() { "$ADB" ${ADB_SERIAL:+-s "$ADB_SERIAL"} "$@"; }
@@ -21,6 +26,7 @@ sh_() { adb_ shell "$@" </dev/null; }
 installed() { sh_ pm path "$1" 2>/dev/null | grep -q '^package:'; }
 
 mode=release
+[[ -z ${APK_SHA256:-} ]] && mode=build
 case ${1:-} in
   "") ;;
   --build) mode=build ;;
@@ -45,10 +51,11 @@ set_futurity() {
 
 # Puts $1 (or nothing) in place of any launcher's service, keeping every other service.
 set_guard() {
-  local cur
+  local cur drop=(-e "$GUARD" -e '')
+  for g in "${OLD_GUARDS[@]}"; do drop+=(-e "$g"); done
   cur=$(sh_ settings get secure enabled_accessibility_services | tr -d '\r')
   [[ $cur == null ]] && cur=
-  cur=$(printf '%s' "$cur" | tr ':' '\n' | { grep -vxF -e "$GUARD" -e "$OLD_GUARD" -e '' || true; } | paste -sd: -)
+  cur=$(printf '%s' "$cur" | tr ':' '\n' | { grep -vxF "${drop[@]}" || true; } | paste -sd: -)
   if [[ -n ${1:-} ]]; then cur=${cur:+$cur:}$1; fi
   # Clearing first makes the accessibility manager rebind a service whose process died.
   sh_ settings put secure enabled_accessibility_services '""'
@@ -69,19 +76,20 @@ sha256() {
 if [[ $mode == undo ]]; then
   set_futurity off
   set_guard ""
+  sh_ cmd notification disallow_listener "$MEDIA" >/dev/null 2>&1 || true
   sh_ am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null
-  echo "HOME handed back to Amazon's launcher (dumbtv home stays installed: adb uninstall $PKG)"
+  echo "HOME handed back to Amazon's launcher (FreeTV stays installed: adb uninstall $PKG)"
   exit 0
 fi
 
 if [[ $mode == build ]]; then
   ./build.sh
-  APK=build/dumbtv-home.apk
+  APK=build/freetv.apk
 else
   mkdir -p build
-  APK=build/dumbtv-home-$VERSION.apk
+  APK=build/freetv-$VERSION.apk
   if [[ ! -f $APK || $(sha256 "$APK") != "$APK_SHA256" ]]; then
-    echo "downloading dumbtv home $VERSION"
+    echo "downloading FreeTV $VERSION"
     curl -fL --progress-bar -o "$APK.part" "$APK_URL" || { echo "error: could not download $APK_URL" >&2; exit 1; }
     mv "$APK.part" "$APK"
   fi
@@ -94,7 +102,7 @@ out=$(adb_ install -r "$APK" 2>&1 | tail -1 || true)
 case $out in
   *Success*) ;;
   *INSTALL_FAILED_UPDATE_INCOMPATIBLE*)
-    echo "error: the installed dumbtv home was signed with a different key (release vs your own build)." >&2
+    echo "error: the installed FreeTV was signed with a different key (release vs your own build)." >&2
     echo "  back up your settings:  adb pull /sdcard/Android/data/$PKG/files/home.conf" >&2
     echo "  then remove it:         adb uninstall $PKG    and run this again" >&2
     exit 1 ;;
@@ -102,14 +110,19 @@ case $out in
 esac
 echo "installed $PKG"
 
+# Coming from dumbtv home: bring its settings and wallpapers along, once.
+OLD=/sdcard/Android/data/tv.dumbtv.home/files NEW=/sdcard/Android/data/$PKG/files
+if installed tv.dumbtv.home && ! sh_ test -f "$NEW/home.conf"; then
+  sh_ "mkdir -p $NEW && cp -r $OLD/. $NEW/" && echo "copied dumbtv home settings (uninstall it when happy: adb uninstall tv.dumbtv.home)"
+fi
+
 sh_ dumpsys deviceidle whitelist +$PKG >/dev/null
 sh_ cmd package set-home-activity $PKG/.Home >/dev/null 2>&1 || true
 set_futurity on
 set_guard $GUARD
+# Now playing reads the active media session; Android hands it only to an enabled notification listener.
+sh_ cmd notification allow_listener "$MEDIA" >/dev/null 2>&1 || true
 sh_ am start -W -n $PKG/.Home >/dev/null
-if installed com.spocky.projengmenu; then
-  echo "note: Projectivy is still installed but no longer used — adb uninstall com.spocky.projengmenu"
-fi
 
 sleep 2
 printf 'accessibility: %s\n' "$(sh_ settings get secure enabled_accessibility_services)"

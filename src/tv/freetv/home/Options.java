@@ -1,4 +1,4 @@
-package tv.dumbtv.home;
+package tv.freetv.home;
 
 import android.app.Activity;
 import android.app.AlertDialog;

@@ -1,4 +1,4 @@
-package tv.dumbtv.home;
+package tv.freetv.home;
 
 import android.content.Context;
 import android.graphics.Color;
@@ -220,22 +220,22 @@ final class Config {
                 values.put(line.substring(0, eq).trim(), line.substring(eq + 1).trim());
             }
         } catch (IOException e) {
-            Log.w("dumbtv", "could not read " + file, e);
+            Log.w("freetv", "could not read " + file, e);
         }
     }
 
     private void save() {
         File tmp = new File(dir, FILE + ".tmp");
         try (Writer w = new OutputStreamWriter(new FileOutputStream(tmp), StandardCharsets.UTF_8)) {
-            w.write("# dumbtv home. Edit on the TV (Options) or here; unknown keys are kept.\n");
+            w.write("# FreeTV. Edit on the TV (Options) or here; unknown keys are kept.\n");
             for (Map.Entry<String, String> e : values.entrySet()) {
                 w.write(e.getKey() + "=" + e.getValue() + "\n");
             }
         } catch (IOException e) {
-            Log.w("dumbtv", "could not write " + tmp, e);
+            Log.w("freetv", "could not write " + tmp, e);
             return;
         }
-        if (!tmp.renameTo(file)) Log.w("dumbtv", "could not replace " + file);
+        if (!tmp.renameTo(file)) Log.w("freetv", "could not replace " + file);
         signature = file.lastModified() * 31 + file.length();
     }
 

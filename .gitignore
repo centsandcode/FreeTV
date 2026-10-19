@@ -1,0 +1,4 @@
+build/
+# your signing key: private, never commit it
+*.keystore
+*.jks
