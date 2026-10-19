@@ -10,6 +10,8 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -64,6 +66,7 @@ public final class Home extends Activity {
     private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
     private static final String HERO = "hero", RECENT = "recent", FAVS = "favs", ALL = "apps";
     private static final int RECENT_SHOWN = 8;
+    private static final String TAB_HOME = "home", TAB_APPS = "apps";
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
@@ -79,7 +82,9 @@ public final class Home extends Activity {
     private ImageView wall;
     private View shade, glow;
     private TextView greeting, clock, date, stats;
-    private LinearLayout quick, appsBox;
+    private LinearLayout column, quick, quickBox, appsBox;
+    private String tab = TAB_HOME;
+    private TextView navHome, navApps;
     private Row inputs;
     private List<Item> appsAll = new ArrayList<>();
     private Tile moving;
@@ -173,7 +178,16 @@ public final class Home extends Activity {
             strip.setClipChildren(false);
             strip.setClipToPadding(false);
             strip.setPadding(bleed, dp(12), bleed, dp(8));
-            scroll = new HorizontalScrollView(Home.this);
+            scroll = new HorizontalScrollView(Home.this) {
+                /** Keeps the focused tile centered, except near either end of the row. */
+                @Override
+                protected int computeScrollDeltaToGetChildRectOnScreen(Rect r) {
+                    if (getChildCount() == 0) return 0;
+                    int range = Math.max(0, getChildAt(0).getWidth() - (getWidth() - getPaddingLeft() - getPaddingRight()));
+                    int target = Math.max(0, Math.min(range, r.centerX() - getWidth() / 2));
+                    return target - getScrollX();
+                }
+            };
             scroll.setFocusable(false);
             scroll.setHorizontalScrollBarEnabled(false);
             scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -275,6 +289,7 @@ public final class Home extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         if (moving != null) stopMoving();
+        setTab(TAB_HOME);
         // HOME lands at the top; when this arrives before onResume, onResume does it after re-rendering.
         if (resumed) focusFirst();
         else toTop = true;
@@ -328,92 +343,65 @@ public final class Home extends Activity {
         glow.setVisibility(View.GONE);
         root.addView(glow, new FrameLayout.LayoutParams(MATCH, MATCH));
 
-        page = new ScrollView(this);
-        page.setFocusable(false);
-        page.setFillViewport(true);
-        page.setVerticalScrollBarEnabled(false);
-        page.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        page.setClipChildren(false);
-        root.addView(page, new FrameLayout.LayoutParams(MATCH, MATCH));
-
-        LinearLayout column = new LinearLayout(this) {
+        LinearLayout frame = new LinearLayout(this) {
             @Override
             public View focusSearch(View focused, int direction) {
                 if (direction == View.FOCUS_DOWN && headChips.contains(focused)) {
-                    View below = quick.getVisibility() == View.VISIBLE ? nearest(quick, focused) : firstTile(focused);
-                    if (below != null) return below;
-                }
-                if (direction == View.FOCUS_DOWN && focused.getParent() == quick) {
                     View below = firstTile(focused);
                     if (below != null) return below;
                 }
                 return super.focusSearch(focused, direction);
             }
         };
+        frame.setOrientation(LinearLayout.VERTICAL);
+        root.addView(frame, new FrameLayout.LayoutParams(MATCH, MATCH));
+        frame.addView(bar(), new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        page = new ScrollView(this) {
+            /** Scrolls in whole rows: a row starts at the top edge, never cut in half. */
+            @Override
+            protected int computeScrollDeltaToGetChildRectOnScreen(Rect r) {
+                return pageTarget(r) - getScrollY();
+            }
+
+            /**
+             * Up and down only move the focus; scrolling follows it. Left to ScrollView, a press
+             * with nothing focusable that way scrolls half a screen and leaves rows cut.
+             */
+            @Override
+            public boolean executeKeyEvent(KeyEvent e) {
+                switch (e.getKeyCode()) {
+                    case KeyEvent.KEYCODE_DPAD_UP:
+                    case KeyEvent.KEYCODE_DPAD_DOWN:
+                    case KeyEvent.KEYCODE_PAGE_UP:
+                    case KeyEvent.KEYCODE_PAGE_DOWN:
+                    case KeyEvent.KEYCODE_SPACE:
+                        return false;
+                    default:
+                        return super.executeKeyEvent(e);
+                }
+            }
+        };
+        page.setFocusable(false);
+        page.setFillViewport(true);
+        page.setVerticalScrollBarEnabled(false);
+        page.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        page.setClipChildren(false);
+        page.setVerticalFadingEdgeEnabled(true);
+        page.setFadingEdgeLength(dp(24));
+        frame.addView(page, new LinearLayout.LayoutParams(MATCH, 0, 1f));
+
+        column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setClipChildren(false);
         column.setClipToPadding(false);
-        column.setPadding(0, dp(34), 0, dp(32));
+        // room under the last row, so every row can scroll up to the top edge
+        column.setPadding(0, dp(4), 0, dp(320));
         page.addView(column, new FrameLayout.LayoutParams(MATCH, WRAP));
-
-        LinearLayout head = new LinearLayout(this);
-        head.setGravity(Gravity.TOP);
-        head.setPadding(dp(56), 0, dp(56), dp(8));
-        LinearLayout when = new LinearLayout(this);
-        when.setOrientation(LinearLayout.VERTICAL);
-        greeting = Ui.text(this, 16, Ui.MUTED, Ui.MEDIUM);
-        greeting.setPadding(dp(2), 0, 0, dp(6));
-        clock = Ui.text(this, 52, Ui.TEXT, Ui.LIGHT);
-        date = Ui.text(this, 15, Ui.MUTED, Ui.MEDIUM);
-        date.setPadding(dp(2), dp(8), 0, 0);
-        stats = Ui.text(this, 12, Ui.FAINT, Ui.MEDIUM);
-        stats.setPadding(dp(2), dp(6), 0, 0);
-        when.addView(greeting);
-        when.addView(clock);
-        when.addView(date);
-        when.addView(stats);
-        head.addView(when, new LinearLayout.LayoutParams(0, WRAP, 1f));
-
-        LinearLayout side = new LinearLayout(this);
-        side.setOrientation(LinearLayout.VERTICAL);
-        side.setGravity(Gravity.END);
-        LinearLayout top = new LinearLayout(this);
-        top.addView(headChip(chip("Options", v -> startActivity(new Intent(this, Options.class)))));
-        top.addView(headChip(chip("Settings", v -> openSettings())));
-        side.addView(top);
-        playing = new LinearLayout(this);
-        playing.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
-        playing.setPadding(0, dp(14), 0, 0);
-        playing.setVisibility(View.GONE);
-        playText = Ui.text(this, 14, Ui.MUTED, Ui.MEDIUM);
-        playText.setSingleLine();
-        playText.setEllipsize(TextUtils.TruncateAt.END);
-        playText.setMaxWidth(dp(300));
-        playing.addView(playText);
-        playToggle = chip("", v -> toggleMedia());
-        playing.addView(spaced(playToggle, dp(12)));
-        playing.addView(spaced(chip(Ui.t("Next", "Siguiente"), v -> {
-            if (controller != null) controller.getTransportControls().skipToNext();
-        }), dp(8)));
-        side.addView(playing);
-        head.addView(side, new LinearLayout.LayoutParams(WRAP, WRAP));
-        column.addView(head, new LinearLayout.LayoutParams(MATCH, WRAP));
-
-        quick = new LinearLayout(this);
-        quick.setPadding(dp(56), dp(4), dp(56), dp(4));
-        quick.setClipChildren(false);
-        quick.setClipToPadding(false);
-        addQuick(Ui.t("Wi-Fi", "Wi-Fi"), new Intent(Settings.ACTION_WIFI_SETTINGS));
-        addQuick(Ui.t("Display & sound", "Pantalla y sonido"), new Intent(Settings.ACTION_DISPLAY_SETTINGS));
-        addQuick(Ui.t("Remotes & Bluetooth", "Mandos y Bluetooth"), new Intent().setClassName(
-                "com.amazon.tv.settings.v2",
-                "com.amazon.tv.settings.v2.tv.controllers_bluetooth_devices.ControllersAndBluetoothActivity"));
-        addQuick(Ui.t("Apps", "Aplicaciones"), new Intent(Settings.ACTION_APPLICATION_SETTINGS));
-        column.addView(quick, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         heroBox = new LinearLayout(this);
         heroBox.setGravity(Gravity.CENTER_VERTICAL);
-        heroBox.setPadding(dp(56), dp(18), dp(56), dp(4));
+        heroBox.setPadding(dp(56), dp(14), dp(56), dp(4));
         heroBox.setClipChildren(false);
         heroBox.setClipToPadding(false);
         heroSlot = new FrameLayout(this);
@@ -425,7 +413,7 @@ public final class Home extends Activity {
         TextView heroLabel = Ui.text(this, 12, Ui.FAINT, Ui.MEDIUM);
         heroLabel.setText(Ui.t("CONTINUE", "CONTINUAR"));
         heroLabel.setLetterSpacing(0.14f);
-        heroName = Ui.text(this, 26, Ui.TEXT, Ui.LIGHT);
+        heroName = Ui.text(this, 34, Ui.TEXT, Ui.LIGHT);
         heroName.setPadding(0, dp(8), 0, dp(8));
         TextView heroHint = Ui.text(this, 13, Ui.MUTED, Ui.MEDIUM);
         heroHint.setText(Ui.t("Press OK to jump back in", "Pulsa OK para volver donde lo dejaste"));
@@ -442,13 +430,155 @@ public final class Home extends Activity {
         appsBox.setClipToPadding(false);
         column.addView(appsBox, new LinearLayout.LayoutParams(MATCH, WRAP));
 
-        inputs = new Row(Catalog.INPUTS, Catalog.INPUTS, "Inputs", column);
+        inputs = new Row(Catalog.INPUTS, Catalog.INPUTS, Ui.t("Inputs", "Entradas"), column);
+
+        quickBox = new LinearLayout(this);
+        quickBox.setOrientation(LinearLayout.VERTICAL);
+        TextView quickTitle = Ui.text(this, 12, Ui.FAINT, Ui.MEDIUM);
+        quickTitle.setText(Ui.t("QUICK SETTINGS", "AJUSTES RÁPIDOS"));
+        quickTitle.setLetterSpacing(0.14f);
+        quickTitle.setPadding(dp(56), dp(20), dp(56), dp(2));
+        quickBox.addView(quickTitle);
+        quick = new LinearLayout(this);
+        quick.setPadding(dp(56), dp(8), dp(56), dp(8));
+        quick.setClipChildren(false);
+        quick.setClipToPadding(false);
+        addQuick(Ui.t("Wi-Fi", "Wi-Fi"), new Intent(Settings.ACTION_WIFI_SETTINGS));
+        addQuick(Ui.t("Remotes & Bluetooth", "Mandos y Bluetooth"), new Intent().setClassName(
+                "com.amazon.tv.settings.v2",
+                "com.amazon.tv.settings.v2.tv.controllers_bluetooth_devices.ControllersAndBluetoothActivity"));
+        addQuick(Ui.t("Apps", "Aplicaciones"), new Intent(Settings.ACTION_APPLICATION_SETTINGS));
+        addQuick(Ui.t("All settings", "Todos los ajustes"), settingsIntent());
+        quickBox.addView(quick);
+        column.addView(quickBox, new LinearLayout.LayoutParams(MATCH, WRAP));
         return root;
     }
 
-    private TextView headChip(TextView v) {
+    /** Greeting and stats on the left, tabs in the middle, clock and now playing on the right. */
+    private View bar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.TOP);
+        bar.setPadding(dp(56), dp(26), dp(56), dp(6));
+        bar.setClipChildren(false);
+        bar.setClipToPadding(false);
+
+        LinearLayout left = new LinearLayout(this);
+        left.setOrientation(LinearLayout.VERTICAL);
+        greeting = Ui.text(this, 20, Ui.TEXT, Ui.LIGHT);
+        date = Ui.text(this, 13, Ui.MUTED, Ui.MEDIUM);
+        date.setPadding(dp(1), dp(6), 0, 0);
+        stats = Ui.text(this, 11, Ui.FAINT, Ui.MEDIUM);
+        stats.setPadding(dp(1), dp(5), 0, 0);
+        left.addView(greeting);
+        left.addView(date);
+        left.addView(stats);
+        bar.addView(left, new LinearLayout.LayoutParams(0, WRAP, 1f));
+
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setGravity(Gravity.CENTER_VERTICAL);
+        tabs.setPadding(dp(6), dp(5), dp(6), dp(5));
+        tabs.setBackground(Ui.round(0x26000000, dp(24)));
+        tabs.setClipChildren(false);
+        tabs.setClipToPadding(false);
+        navHome = navChip(tabs, Ui.t("Home", "Inicio"), v -> setTab(TAB_HOME));
+        navApps = navChip(tabs, "Apps", v -> setTab(TAB_APPS));
+        navChip(tabs, Ui.t("Options", "Opciones"), v -> startActivity(new Intent(this, Options.class)));
+        navChip(tabs, Ui.t("Settings", "Ajustes"), v -> openSettings());
+        bar.addView(tabs, new LinearLayout.LayoutParams(WRAP, WRAP));
+
+        LinearLayout right = new LinearLayout(this);
+        right.setOrientation(LinearLayout.VERTICAL);
+        right.setGravity(Gravity.END);
+        clock = Ui.text(this, 30, Ui.TEXT, Ui.LIGHT);
+        clock.setGravity(Gravity.END);
+        right.addView(clock);
+        playing = new LinearLayout(this);
+        playing.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        playing.setPadding(0, dp(8), 0, 0);
+        playing.setVisibility(View.GONE);
+        playText = Ui.text(this, 13, Ui.MUTED, Ui.MEDIUM);
+        playText.setSingleLine();
+        playText.setEllipsize(TextUtils.TruncateAt.END);
+        playText.setMaxWidth(dp(220));
+        playing.addView(playText);
+        playToggle = chip("", v -> toggleMedia());
+        playing.addView(spaced(playToggle, dp(10)));
+        playing.addView(spaced(chip(Ui.t("Next", "Siguiente"), v -> {
+            if (controller != null) controller.getTransportControls().skipToNext();
+        }), dp(6)));
+        right.addView(playing);
+        bar.addView(right, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        return bar;
+    }
+
+    private TextView navChip(LinearLayout tabs, String label, View.OnClickListener click) {
+        TextView v = chip(label, click);
         headChips.add(v);
-        return spaced(v, dp(10));
+        v.setPadding(dp(20), dp(8), dp(20), dp(8));
+        tabs.addView(spaced(v, tabs.getChildCount() == 0 ? 0 : dp(4)));
+        return v;
+    }
+
+    private void setTab(String t) {
+        if (!t.equals(tab)) {
+            tab = t;
+            page.scrollTo(0, 0);
+            renderApps();
+            render(inputs);
+            applyTabs();
+        }
+    }
+
+    /** Shows which tab is open: the open one keeps a light fill when the focus is elsewhere. */
+    private void applyTabs() {
+        int accent = cfg.accent();
+        Ui.focusStyle(navHome, accent, TAB_HOME.equals(tab) ? 0x33FFFFFF : 0x00000000, dp(18));
+        Ui.focusStyle(navApps, accent, TAB_APPS.equals(tab) ? 0x33FFFFFF : 0x00000000, dp(18));
+        quickBox.setVisibility(TAB_APPS.equals(tab) && cfg.on(Config.QUICK) && quick.getChildCount() > 0
+                ? View.VISIBLE : View.GONE);
+    }
+
+    /**
+     * The scroll position that shows the block holding {@code r} (the continue card, a row, or
+     * quick settings) whole, with a block boundary on the top edge so nothing is cut in half.
+     */
+    private int pageTarget(Rect r) {
+        List<int[]> blocks = new ArrayList<>();
+        addBlock(blocks, heroBox, heroBox);
+        for (Row row : appRows) addBlock(blocks, row.title, row.scroll);
+        addBlock(blocks, inputs.title, inputs.scroll);
+        addBlock(blocks, quickBox, quickBox);
+        if (blocks.isEmpty()) return 0;
+        int[] at = blocks.get(0);
+        for (int[] b : blocks) {
+            if (r.centerY() >= b[0]) at = b;
+        }
+        int height = page.getHeight();
+        int target = at[0];
+        for (int[] b : blocks) {
+            if (b[0] <= at[0] && b[0] + height >= at[1]) {
+                target = b[0];
+                break;
+            }
+        }
+        if (at == blocks.get(0)) target = 0;
+        int range = Math.max(0, column.getHeight() - height);
+        return Math.max(0, Math.min(range, target));
+    }
+
+    private void addBlock(List<int[]> blocks, View first, View last) {
+        if (first.getVisibility() != View.VISIBLE || last.getVisibility() != View.VISIBLE) return;
+        blocks.add(new int[] {topIn(first), topIn(last) + last.getHeight()});
+    }
+
+    /** {@code v}'s top edge in the scrolling column's coordinates. */
+    private int topIn(View v) {
+        int y = 0;
+        while (v != null && v != column) {
+            y += v.getTop();
+            v = (View) v.getParent();
+        }
+        return y;
     }
 
     private static TextView spaced(TextView v, int left) {
@@ -458,22 +588,28 @@ public final class Home extends Activity {
         return v;
     }
 
+    /** Adds a quick-settings chip, unless the screen is missing or Amazon keeps it to its own launcher. */
     private void addQuick(String label, Intent target) {
-        if (target.resolveActivity(getPackageManager()) == null) return;
+        ResolveInfo ri = getPackageManager().resolveActivity(target, 0);
+        if (ri == null || ri.activityInfo == null) return;
+        String needs = ri.activityInfo.permission;
+        if (needs != null && checkSelfPermission(needs) != PackageManager.PERMISSION_GRANTED) return;
         TextView v = chip(label, c -> launch(new Intent(target), null));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
         lp.rightMargin = dp(10);
-        lp.topMargin = dp(6);
         quick.addView(v, lp);
     }
 
-    /** The first tile under the header: the continue card, else the closest tile of the top row. */
+    /** The first tile under the bar: the continue card, else the closest tile of the top row. */
     private View firstTile(View from) {
         if (heroTile != null && heroBox.getVisibility() == View.VISIBLE) return heroTile;
         for (Row r : appRows) {
             if (r.strip.getChildCount() > 0) return nearest(r.strip, from);
         }
-        return inputs.strip.getChildCount() > 0 ? nearest(inputs.strip, from) : null;
+        if (inputs.scroll.getVisibility() == View.VISIBLE && inputs.strip.getChildCount() > 0) {
+            return nearest(inputs.strip, from);
+        }
+        return quickBox.getVisibility() == View.VISIBLE ? nearest(quick, from) : null;
     }
 
     /** The child of {@code strip} horizontally closest to {@code from}, or null when empty. */
@@ -512,8 +648,8 @@ public final class Home extends Activity {
     private void apply() {
         applied = cfg.version();
         int accent = cfg.accent();
-        for (TextView c : chips) Ui.focusStyle(c, accent, 0x14FFFFFF, dp(18));
-        quick.setVisibility(cfg.on(Config.QUICK) && quick.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+        for (TextView c : chips) Ui.focusStyle(c, accent, headChips.contains(c) ? 0 : 0x14FFFFFF, dp(18));
+        applyTabs();
         greeting.setVisibility(cfg.on(Config.GREETING) ? View.VISIBLE : View.GONE);
         stats.setVisibility(cfg.on(Config.STATS) ? View.VISIBLE : View.GONE);
         if (!cfg.on(Config.AMBIENT)) glow.setVisibility(View.GONE);
@@ -579,32 +715,38 @@ public final class Home extends Activity {
         appsBox.removeAllViews();
         appRows.clear();
 
+        boolean home = TAB_HOME.equals(tab);
         heroSlot.removeAllViews();
         heroTile = null;
-        if (hero != null) {
+        if (home && hero != null) {
             heroTile = tile(hero, Catalog.APPS, Math.round(w * 1.4f), Math.round(h * 1.4f), "never");
             heroSlot.addView(heroTile);
             heroName.setText(Catalog.label(cfg, hero));
             if (!hero.artRequested) loadArt(hero);
         }
-        heroBox.setVisibility(hero != null ? View.VISIBLE : View.GONE);
+        heroBox.setVisibility(heroTile != null ? View.VISIBLE : View.GONE);
 
+        // Home: what you watch. Apps: everything, one row per category.
         List<Item> favs = new ArrayList<>(), rest = new ArrayList<>();
         Map<String, List<Item>> grouped = new LinkedHashMap<>();
         for (String g : cfg.groups()) grouped.put(g, new ArrayList<>());
         for (Item it : base) {
             String g = cfg.groupOf(it.id);
             if (cfg.favorite(it.id)) favs.add(it);
-            else if (g != null && grouped.containsKey(g)) grouped.get(g).add(it);
+            if (g != null && grouped.containsKey(g)) grouped.get(g).add(it);
             else rest.add(it);
         }
 
-        addRow(FAVS, Ui.t("Favorites", "Favoritas"), favs, Math.round(w * 1.25f), Math.round(h * 1.25f));
-        if (cfg.on(Config.RECENTS)) addRow(RECENT, Ui.t("Recent", "Recientes"), recent, w, h);
-        for (Map.Entry<String, List<Item>> e : grouped.entrySet()) {
-            addRow("group:" + e.getKey(), e.getKey(), e.getValue(), w, h);
+        if (home) {
+            addRow(FAVS, Ui.t("Favorites", "Favoritas"), favs, Math.round(w * 1.25f), Math.round(h * 1.25f));
+            if (cfg.on(Config.RECENTS)) addRow(RECENT, Ui.t("Recent", "Recientes"), recent, w, h);
+            if (appRows.isEmpty()) addRow(ALL, "Apps", base, w, h);
+        } else {
+            for (Map.Entry<String, List<Item>> e : grouped.entrySet()) {
+                addRow("group:" + e.getKey(), e.getKey(), e.getValue(), w, h);
+            }
+            addRow(ALL, appRows.isEmpty() ? "Apps" : Ui.t("More apps", "Más apps"), rest, w, h);
         }
-        addRow(ALL, appRows.isEmpty() ? "Apps" : Ui.t("More apps", "Más apps"), rest, w, h);
 
         View restore = null;
         if (keepId != null) {
@@ -661,7 +803,7 @@ public final class Home extends Activity {
                 ? ((Tile) focused).item.id : null;
         row.strip.removeAllViews();
 
-        boolean enabled = "on".equals(cfg.get(Config.INPUTS));
+        boolean enabled = "on".equals(cfg.get(Config.INPUTS)) && TAB_APPS.equals(tab);
         List<Item> shown = enabled ? Catalog.visible(cfg, row.kind, row.all) : new ArrayList<>();
         int[] size = cardSize();
         int w = size[0], h = Math.round(size[1] * 0.56f);
@@ -752,9 +894,9 @@ public final class Home extends Activity {
         ActivityManager.MemoryInfo mi = new ActivityManager.MemoryInfo();
         am.getMemoryInfo(mi);
         StatFs fs = new StatFs(Environment.getDataDirectory().getPath());
-        return String.format(Locale.getDefault(), "%s %d MB  ·  %s %.1f GB",
-                Ui.t("Free RAM", "RAM libre"), mi.availMem / (1024 * 1024),
-                Ui.t("Free storage", "Almacenamiento libre"), fs.getAvailableBytes() / 1e9);
+        return String.format(Locale.getDefault(), "RAM %d MB  ·  %s %.1f GB",
+                mi.availMem / (1024 * 1024), Ui.t("Storage", "Espacio"), fs.getAvailableBytes() / 1e9)
+                + Ui.t(" free", " libres");
     }
 
     private void background() {
@@ -913,10 +1055,14 @@ public final class Home extends Activity {
      * Guard then replaces with ours. The TV settings entry point opens the real settings screen.
      */
     private void openSettings() {
+        launch(settingsIntent(), null);
+    }
+
+    private Intent settingsIntent() {
         Intent tvSettings = new Intent(Intent.ACTION_MAIN)
                 .addCategory("android.intent.category.LEANBACK_SETTINGS");
         boolean found = tvSettings.resolveActivity(getPackageManager()) != null;
-        launch(found ? tvSettings : new Intent(Settings.ACTION_SETTINGS), null);
+        return found ? tvSettings : new Intent(Settings.ACTION_SETTINGS);
     }
 
     private void open(Tile t) {
