@@ -40,6 +40,7 @@ import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.text.style.RelativeSizeSpan;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -89,8 +90,9 @@ public final class Home extends Activity {
     private GradientDrawable glowDrawable;
     private TextView greeting, clock, date, stats;
     private LinearLayout column, quick, quickBox, appsBox;
+    private TextView drawerHandle;
     private String tab = TAB_HOME;
-    private TextView navHome, navApps;
+    private TextView navHome;
     private Row inputs;
     private List<Item> appsAll = new ArrayList<>();
     private Tile moving;
@@ -309,12 +311,21 @@ public final class Home extends Activity {
 
     @Override
     public void onBackPressed() {
-        focusFirst();
+        if (TAB_APPS.equals(tab)) closeDrawer();
+        else focusFirst();
     }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        if (moving == null) return super.dispatchKeyEvent(e);
+        if (moving == null) {
+            if (e.getAction() == KeyEvent.ACTION_DOWN
+                    && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP
+                    && TAB_APPS.equals(tab) && inFirstDrawerRow()) {
+                closeDrawer();
+                return true;
+            }
+            return super.dispatchKeyEvent(e);
+        }
         if (e.getAction() == KeyEvent.ACTION_DOWN) {
             switch (e.getKeyCode()) {
                 case KeyEvent.KEYCODE_DPAD_LEFT:
@@ -495,7 +506,6 @@ public final class Home extends Activity {
         tabs.setClipChildren(false);
         tabs.setClipToPadding(false);
         navHome = navChip(tabs, Ui.t("Home", "Inicio"), v -> setTab(TAB_HOME));
-        navApps = navChip(tabs, "Apps", v -> setTab(TAB_APPS));
         navChip(tabs, Ui.t("Options", "Opciones"), v -> startActivity(new Intent(this, Options.class)));
         navChip(tabs, Ui.t("Settings", "Ajustes"), v -> openSettings());
         bar.addView(tabs, new LinearLayout.LayoutParams(WRAP, WRAP));
@@ -547,7 +557,6 @@ public final class Home extends Activity {
     private void applyTabs() {
         int accent = cfg.accent();
         Ui.focusStyle(navHome, accent, TAB_HOME.equals(tab) ? 0x33FFFFFF : 0x00000000, dp(18));
-        Ui.focusStyle(navApps, accent, TAB_APPS.equals(tab) ? 0x33FFFFFF : 0x00000000, dp(18));
         quickBox.setVisibility(TAB_APPS.equals(tab) && cfg.on(Config.QUICK) && quick.getChildCount() > 0
                 ? View.VISIBLE : View.GONE);
     }
@@ -758,14 +767,17 @@ public final class Home extends Activity {
 
         if (home) {
             addRow(FAVS, Ui.t("Favorites", "Favoritas"), favs, Math.round(w * 1.25f), Math.round(h * 1.25f));
-            if (cfg.on(Config.RECENTS)) addRow(RECENT, Ui.t("Recent", "Recientes"), recent, w, h);
+            // nothing favorited yet: show everything rather than an empty home
             if (appRows.isEmpty()) addRow(ALL, "Apps", base, w, h);
         } else {
+            if (cfg.on(Config.RECENTS)) addRow(RECENT, Ui.t("Recent", "Recientes"), recent, w, h);
             for (Map.Entry<String, List<Item>> e : grouped.entrySet()) {
                 addRow("group:" + e.getKey(), e.getKey(), e.getValue(), w, h);
             }
             addRow(ALL, appRows.isEmpty() ? "Apps" : Ui.t("More apps", "Más apps"), rest, w, h);
         }
+
+        if (home) addDrawerHandle();
 
         View restore = null;
         if (keepId != null) {
@@ -800,6 +812,58 @@ public final class Home extends Activity {
                     .setInterpolator(new DecelerateInterpolator(2f))
                     .start();
         }
+    }
+
+    /**
+     * The way into the drawer: a chevron under the last row of the home screen. Pressing it,
+     * or pressing down on it, opens everything the home screen does not show.
+     */
+    private void addDrawerHandle() {
+        TextView v = new TextView(this);
+        v.setText("∨  " + Ui.t("apps", "apps"));
+        v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        v.setLetterSpacing(0.18f);
+        v.setTextColor(0x99FFFFFF);
+        v.setGravity(Gravity.CENTER);
+        v.setPadding(dp(18), dp(10), dp(18), dp(10));
+        v.setFocusable(true);
+        v.setOnClickListener(x -> openDrawer());
+        v.setOnKeyListener((x, code, e) -> {
+            if (e.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_CENTER
+                    || code == KeyEvent.KEYCODE_ENTER) {
+                openDrawer();
+                return true;
+            }
+            return false;
+        });
+        Ui.focusStyle(v, cfg.accent(), 0x00000000, dp(18));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
+        lp.gravity = Gravity.CENTER_HORIZONTAL;
+        lp.topMargin = dp(10);
+        drawerHandle = v;
+        appsBox.addView(v, lp);
+    }
+
+    private void openDrawer() {
+        setTab(TAB_APPS);
+        // the handle had the focus and is gone now, so place it rather than let
+        // the view hierarchy hand it to the nav chips
+        focusFirst();
+    }
+
+    /** Back out of the drawer, landing on the handle that opened it. */
+    private void closeDrawer() {
+        setTab(TAB_HOME);
+        if (drawerHandle != null) drawerHandle.requestFocus();
+    }
+
+    /** True while the focus is somewhere in the drawer's first row, where up means close. */
+    private boolean inFirstDrawerRow() {
+        if (appRows.isEmpty()) return false;
+        View f = getCurrentFocus();
+        if (!(f instanceof Tile)) return false;
+        return appRows.get(0).key.equals(rowOf((Tile) f));
     }
 
     private void addRow(String key, String name, List<Item> items, int w, int h) {
