@@ -1,6 +1,7 @@
 # FreeTV
 
-A home screen for Amazon Fire TV with no ads, no tracking and no internet permission.
+A home screen for Amazon Fire TV, where third-party launchers cannot normally take over the
+HOME button. No root, no ads, no tracking and no internet permission.
 Your apps, what you were watching, and nothing else.
 
 FreeTV is a fork of **dumbtv home**, the launcher in [humblemuzzu/dumbtv](https://github.com/humblemuzzu/dumbtv)
@@ -31,8 +32,10 @@ and requests **no permissions**.
 
 ## Install
 
-You need a computer on the same network as the TV, [Android platform-tools](https://developer.android.com/tools/releases/platform-tools)
-(`adb`), a JDK 17+ and the Android SDK build-tools (FreeTV is built from source on your machine and signed with your own key).
+All you need is a computer on the same network as the TV and
+[Android platform-tools](https://developer.android.com/tools/releases/platform-tools) (`adb`).
+The installer downloads the published APK and checks its SHA-256 against `version.env` before
+installing anything.
 
 1. On the TV: Settings → My Fire TV → About, press the device name 7 times. Then in Developer options
    turn on **ADB debugging**, and note the IP address from About → Network.
@@ -49,8 +52,31 @@ You need a computer on the same network as the TV, [Android platform-tools](http
    ./install.sh
    ```
 
-The installer builds the APK, installs it, and gives it the HOME button. Coming from dumbtv home, it copies
+The installer installs the APK and gives it the HOME button. Coming from dumbtv home, it copies
 your settings and wallpapers over.
+
+### Let an AI agent do it
+
+If you have a coding assistant with shell access (Claude Code, Codex, Gemini CLI), paste
+[PROMPT.md](PROMPT.md) into it instead. It checks your setup, finds the TV, confirms what it is about
+to do, and runs the same installer.
+
+### Build it yourself
+
+If you would rather not trust a prebuilt APK, build and sign it with your own key. This needs a
+JDK 17+ and the Android SDK build-tools on top of `adb`:
+
+```powershell
+.\install.ps1 -Tv 192.168.1.50 -Build   # Windows
+```
+
+```sh
+./install.sh --build                    # macOS / Linux
+```
+
+Both paths produce the same app. They are signed with different keys, so switching between them means
+uninstalling first (`adb uninstall tv.freetv.home`); back up
+`/sdcard/Android/data/tv.freetv.home/files/home.conf` if you want to keep your settings.
 
 **Undo**: `.\install.ps1 -Tv <ip> -Undo` or `./install.sh --undo` hands HOME back to Amazon's launcher;
 `adb uninstall tv.freetv.home` removes FreeTV.
@@ -87,8 +113,9 @@ adb push morning-sky.jpg night-stars.jpg /sdcard/Android/data/tv.freetv.home/fil
 
 FreeTV es una pantalla de inicio para Fire TV sin anuncios ni rastreo, basada en el launcher de
 [dumbtv](https://github.com/humblemuzzu/dumbtv). Añade "Continuar", favoritas, pestañas, categorías, fondos que
-cambian según la hora, color ambiental y "Sonando ahora". Para instalarlo desde Windows:
-`.\install.ps1 -Tv <ip-de-la-tele>`.
+cambian según la hora, color ambiental y "Sonando ahora". Solo hace falta `adb` y un ordenador en la misma red: el instalador descarga el APK publicado y
+comprueba su SHA-256 antes de instalar nada. Desde Windows:
+`.\install.ps1 -Tv <ip-de-la-tele>`. Si prefieres compilarlo tú, añade `-Build`.
 
 ## License
 

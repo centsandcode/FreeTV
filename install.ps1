@@ -1,8 +1,9 @@
-# Windows version of install.sh: builds FreeTV, installs it and gives it the HOME button.
-#   .\install.ps1 -Tv 192.168.1.50      build, install and take over HOME on that TV
-#   .\install.ps1 -Tv 192.168.1.50 -Undo  hand HOME back to Amazon's launcher
+# Windows version of install.sh: installs FreeTV and gives it the HOME button.
+#   .\install.ps1 -Tv 192.168.1.50         the release APK (checksum-verified), else build from source
+#   .\install.ps1 -Tv 192.168.1.50 -Build  build from source (needs a JDK and the Android SDK)
+#   .\install.ps1 -Tv 192.168.1.50 -Undo   hand HOME back to Amazon's launcher
 # Without -Tv it uses the single device adb already sees.
-param([string]$Tv, [switch]$Undo, [switch]$NoBuild)
+param([string]$Tv, [switch]$Undo, [switch]$Build, [switch]$NoBuild)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
@@ -63,10 +64,40 @@ if ($Undo) {
   return
 }
 
-if (-not $NoBuild) { & "$PSScriptRoot\build.ps1" }
+# version.env is the single source of truth: with a checksum there we install the
+# published APK, and without one there is nothing to verify, so we build from source.
+$ver = @{}
+foreach ($line in Get-Content "$PSScriptRoot\version.env") {
+  if ($line -match '^\s*([A-Z0-9_]+)\s*=\s*(.*)$') { $ver[$Matches[1]] = $Matches[2].Trim() }
+}
+$VERSION = $ver['VERSION']; $APK_SHA256 = $ver['APK_SHA256']
+
+$mode = if ($NoBuild) { "none" } elseif ($Build -or -not $APK_SHA256) { "build" } else { "release" }
+
+if ($mode -eq "build") {
+  & "$PSScriptRoot\build.ps1"
+  $src = "$PSScriptRoot\build\freetv.apk"
+} elseif ($mode -eq "release") {
+  New-Item -ItemType Directory -Force -Path "$PSScriptRoot\build" | Out-Null
+  $src = "$PSScriptRoot\build\freetv-$VERSION.apk"
+  $url = "https://github.com/centsandcode/FreeTV/releases/download/v$VERSION/freetv.apk"
+  $cached = (Test-Path $src) -and ((Get-FileHash $src -Algorithm SHA256).Hash -eq $APK_SHA256)
+  if (-not $cached) {
+    "downloading FreeTV $VERSION"
+    try { Invoke-WebRequest -Uri $url -OutFile "$src.part" -UseBasicParsing }
+    catch { throw "could not download $url" }
+    Move-Item "$src.part" $src -Force
+  }
+  $got = (Get-FileHash $src -Algorithm SHA256).Hash
+  if ($got -ne $APK_SHA256) { throw "checksum mismatch for $src (got $got) - not installing" }
+  "checksum ok"
+} else {
+  $src = "$PSScriptRoot\build\freetv.apk"
+}
+
 # adb on Windows fails on long paths: install from a short copy
 $apk = Join-Path $env:TEMP "freetv.apk"
-Copy-Item "$PSScriptRoot\build\freetv.apk" $apk -Force
+Copy-Item $src $apk -Force
 $out = & $adb @serial install -r $apk 2>&1 | Select-Object -Last 1
 if ("$out" -match "INSTALL_FAILED_UPDATE_INCOMPATIBLE") {
   throw "the installed FreeTV was signed with a different key: back up /sdcard/Android/data/$PKG/files/home.conf, adb uninstall $PKG, run again"
