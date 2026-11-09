@@ -25,8 +25,18 @@ if ($Tv) {
   & $adb connect $target | Out-Null
   $serial = @("-s", $target)
 } else { $serial = @() }
+# how to name this TV in messages we print back to the user
+$dev = if ($serial.Count) { "-s $target " } else { "" }
 function sh_([string]$cmd) { & $adb @serial shell $cmd }
-if ((& $adb @serial get-state 2>$null) -ne "device") {
+# adb writes "device unauthorized" and friends to stderr, which PowerShell turns into a
+# terminating error before this check can explain what to do: read the state calmly first
+$prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+$state = (& $adb @serial get-state 2>&1 | Select-Object -Last 1) -as [string]
+$ErrorActionPreference = $prev
+if ($state -notmatch "device") {
+  if ($state -match "unauthorized") {
+    throw "the TV has not authorised this computer yet: accept the 'Allow USB debugging' dialog on the TV screen, then run this again"
+  }
   throw "no TV connected: enable ADB debugging on the TV, run with -Tv <ip> and accept the prompt on screen"
 }
 
@@ -98,11 +108,19 @@ if ($mode -eq "build") {
 # adb on Windows fails on long paths: install from a short copy
 $apk = Join-Path $env:TEMP "freetv.apk"
 Copy-Item $src $apk -Force
-$out = & $adb @serial install -r $apk 2>&1 | Select-Object -Last 1
-if ("$out" -match "INSTALL_FAILED_UPDATE_INCOMPATIBLE") {
-  throw "the installed FreeTV was signed with a different key: back up /sdcard/Android/data/$PKG/files/home.conf, adb uninstall $PKG, run again"
+# adb reports install failures on stderr, so read them as text rather than letting
+# PowerShell turn the first line into a terminating error
+$prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+$out = (& $adb @serial install -r $apk 2>&1 | Out-String)
+$ErrorActionPreference = $prev
+if ($out -match "INSTALL_FAILED_UPDATE_INCOMPATIBLE") {
+  throw ("the FreeTV already on the TV was signed with a different key (the published APK and " +
+    "your own build do not match).`n" +
+    "  keep your settings:  adb ${dev}pull /sdcard/Android/data/$PKG/files/home.conf`n" +
+    "  then remove it:      adb ${dev}uninstall $PKG`n" +
+    "  and run this again")
 }
-if ("$out" -notmatch "Success") { throw "adb install failed: $out" }
+if ($out -notmatch "Success") { throw "adb install failed: $out" }
 "installed $PKG"
 
 # Coming from dumbtv home: bring its settings and wallpapers along, once.

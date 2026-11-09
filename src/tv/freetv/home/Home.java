@@ -59,6 +59,7 @@ import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -93,7 +94,9 @@ public final class Home extends Activity {
     private Row inputs;
     private List<Item> appsAll = new ArrayList<>();
     private Tile moving;
-    private String wallKey;
+    // not null: on a clean install there are no wallpapers, and a null key here
+    // would match the initial value and skip setting the opaque background
+    private String wallKey = "";
 
     private LinearLayout heroBox;
     private FrameLayout heroSlot;
@@ -215,6 +218,8 @@ public final class Home extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         cfg = Config.get(this);
+        cfg.seedFavorites(getPackageManager());
+        cfg.seedWallpapers(this);
         tv = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
         sessions = (MediaSessionManager) getSystemService(Context.MEDIA_SESSION_SERVICE);
         setContentView(build());
@@ -745,6 +750,11 @@ public final class Home extends Activity {
             if (g != null && grouped.containsKey(g)) grouped.get(g).add(it);
             else rest.add(it);
         }
+
+        // the catalog is ordered by package name; favorites follow the order they were
+        // added in, which is what the seed and the long-press menu actually control
+        List<String> favOrder = cfg.list(Config.FAVORITES);
+        Collections.sort(favs, (a, b) -> Integer.compare(favOrder.indexOf(a.id), favOrder.indexOf(b.id)));
 
         if (home) {
             addRow(FAVS, Ui.t("Favorites", "Favoritas"), favs, Math.round(w * 1.25f), Math.round(h * 1.25f));

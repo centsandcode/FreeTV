@@ -1,6 +1,7 @@
 package tv.freetv.home;
 
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.util.Log;
 
@@ -9,7 +10,9 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -66,7 +69,8 @@ final class Config {
     static final Choice INPUTS = new Choice("inputs", "Inputs row", "on",
             new String[] {"on", "off"},
             new String[] {"Shown", "Hidden"});
-    static final Choice BACKGROUND = new Choice("background", "Background", "black",
+    // defaults to the bundled wallpapers: they ship in the APK and are unpacked on first run
+    static final Choice BACKGROUND = new Choice("background", "Background", "image",
             new String[] {"black", "graphite", "midnight", "image"},
             new String[] {"Black", "Graphite", "Midnight", "Image file"});
     static final Choice DIM = new Choice("dim", "Image dim", "40",
@@ -98,6 +102,78 @@ final class Config {
     private static final String RECENT = "recent";
     private static final int RECENT_MAX = 10;
     static final String FAVORITES = "apps.fav";
+    /** Set once the first run has seeded favorites, so clearing them keeps them clear. */
+    private static final String SEEDED = "apps.fav.seeded";
+    /**
+     * Streaming apps to favorite on the first run, in the order they should appear.
+     * Package names verified on a Fire TV Stick running Fire OS 8; apps that are not
+     * installed are skipped. Everything else is one long press away.
+     */
+    private static final String[] SEED = {
+        "com.netflix.ninja",            // Netflix
+        "com.amazon.firebat",           // Prime Video
+        "com.amazon.firetv.youtube",    // YouTube
+        "com.disney.disneyplus",        // Disney+
+        "com.hbo.hbonow",               // HBO Max
+        "com.dazn",                     // DAZN
+        "com.amazon.bueller.music",     // Amazon Music
+    };
+
+    /**
+     * Wallpapers shipped in res/raw and unpacked on the first run, two per time of day.
+     * They are copied out rather than read in place so that the rotation, the Options
+     * screen and a hand-edited folder all see one kind of file in one place.
+     */
+    private static final String[] SEED_WALLPAPERS = {
+        "afternoon_indigo",
+        "afternoon_violet",
+        "morning_dawn",
+        "morning_waves",
+        "night_galaxy",
+        "night_nebula",
+    };
+    private static final String WALLPAPERS_SEEDED = "wallpapers.seeded";
+
+    /** First run only: unpack the bundled wallpapers next to home.conf. */
+    void seedWallpapers(Context c) {
+        if (!get(WALLPAPERS_SEEDED, "").isEmpty()) return;
+        File folder = new File(dir, WALLPAPERS);
+        if (!folder.isDirectory() && !folder.mkdirs()) {
+            Log.w("freetv", "could not create " + folder);
+            return;
+        }
+        for (String name : SEED_WALLPAPERS) {
+            int id = c.getResources().getIdentifier(name, "raw", c.getPackageName());
+            if (id == 0) continue;
+            File out = new File(folder, name + ".jpg");
+            if (out.isFile()) continue;
+            try (InputStream in = c.getResources().openRawResource(id);
+                 OutputStream os = new FileOutputStream(out)) {
+                byte[] buf = new byte[16384];
+                for (int n; (n = in.read(buf)) > 0; ) os.write(buf, 0, n);
+            } catch (IOException e) {
+                Log.w("freetv", "could not unpack " + name, e);
+            }
+        }
+        set(WALLPAPERS_SEEDED, "1");
+    }
+
+    /** First run only: favorite the apps from {@link #SEED} that are installed. */
+    void seedFavorites(PackageManager pm) {
+        if (!get(SEEDED, "").isEmpty()) return;
+        List<String> favs = list(FAVORITES);
+        for (String pkg : SEED) {
+            if (favs.contains(pkg)) continue;
+            try {
+                pm.getPackageInfo(pkg, 0);
+                favs.add(pkg);
+            } catch (PackageManager.NameNotFoundException notInstalled) {
+                // skip it
+            }
+        }
+        setList(FAVORITES, favs);
+        set(SEEDED, "1");
+    }
     private static final String GROUPS = "groups";
 
     /** Puts {@code pkg} first in the recent list; a no-op when it already is. */

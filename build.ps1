@@ -33,8 +33,13 @@ Get-Content version.env | Where-Object { $_ -match '^(\w+)=(.*)$' } | ForEach-Ob
 $KEYSTORE = if ($env:FREETV_KEYSTORE) { $env:FREETV_KEYSTORE } else { "$PWD\release.keystore" }
 $KEYPASS = if ($env:FREETV_KEYPASS) { $env:FREETV_KEYPASS } else { "freetvhome" }
 if (-not (Test-Path $KEYSTORE)) {
+  # keytool reports progress on stderr, which PowerShell turns into a terminating error
+  # under ErrorActionPreference Stop: check the exit code instead
+  $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
   keytool -genkeypair -keystore $KEYSTORE -alias home -keyalg RSA -keysize 2048 -validity 10000 `
-    -storepass $KEYPASS -keypass $KEYPASS -dname "CN=FreeTV" | Out-Null
+    -storepass $KEYPASS -keypass $KEYPASS -dname "CN=FreeTV" 2>&1 | Out-Null
+  $code = $LASTEXITCODE; $ErrorActionPreference = $prev
+  if ($code) { throw "keytool failed ($code): could not create $KEYSTORE" }
   "created signing key $KEYSTORE (keep it: updates must be signed with the same key)"
 }
 
