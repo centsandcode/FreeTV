@@ -4,6 +4,7 @@ import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.ActivityManager;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -24,6 +25,7 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.TransitionDrawable;
 import android.view.animation.DecelerateInterpolator;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.MediaMetadata;
 import android.media.session.MediaController;
@@ -46,6 +48,7 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.Window;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.EditText;
@@ -1315,6 +1318,53 @@ public final class Home extends Activity {
         }
     }
 
+    /**
+     * The tile menu and the category picker, as a panel in the launcher's own style: the
+     * platform's alert dialog looks like a settings screen from another decade next to it.
+     */
+    private void sheet(CharSequence title, List<String> names, List<Runnable> actions) {
+        int accent = cfg.accent();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setBackground(Ui.round(0xF21C1D21, dp(20)));
+        panel.setPadding(dp(10), dp(18), dp(10), dp(12));
+
+        TextView head = Ui.text(this, 18, Ui.TEXT, Ui.MEDIUM);
+        head.setText(title);
+        head.setPadding(dp(16), 0, dp(16), dp(14));
+        head.setMaxLines(2);
+        panel.addView(head, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        final Dialog d = new Dialog(this, android.R.style.Theme_DeviceDefault_Dialog_NoActionBar);
+        View first = null;
+        for (int i = 0; i < names.size(); i++) {
+            final Runnable action = actions.get(i);
+            TextView row = Ui.text(this, 16, Ui.TEXT, null);
+            row.setText(names.get(i));
+            row.setPadding(dp(16), dp(13), dp(16), dp(13));
+            row.setFocusable(true);
+            Ui.focusStyle(row, accent, 0x00000000, dp(12));
+            row.setOnClickListener(v -> {
+                d.dismiss();
+                action.run();
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(MATCH, WRAP);
+            lp.topMargin = dp(2);
+            panel.addView(row, lp);
+            if (first == null) first = row;
+        }
+
+        d.setContentView(panel);
+        Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new ColorDrawable(0x00000000));
+            w.setDimAmount(0.72f);
+            w.setLayout(dp(400), WRAP);
+        }
+        d.show();
+        if (first != null) first.requestFocus();
+    }
+
     private void menu(Tile t) {
         boolean app = Catalog.APPS.equals(t.kind);
         String row = t == heroTile ? HERO : rowOf(t);
@@ -1354,10 +1404,7 @@ public final class Home extends Activity {
             actions.add(() -> launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.fromParts("package", t.item.id, null)), null));
         }
-        new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle(Catalog.label(cfg, t.item))
-                .setItems(names.toArray(new String[0]), (d, which) -> actions.get(which).run())
-                .show();
+        sheet(Catalog.label(cfg, t.item), names, actions);
     }
 
     private void pickGroup(Item it) {
@@ -1366,20 +1413,11 @@ public final class Home extends Activity {
         List<String> names = new ArrayList<>(groups);
         names.add(Ui.t("New category…", "Nueva categoría…"));
         if (current != null) names.add(Ui.t("No category", "Sin categoría"));
-        new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle(Ui.t("Category", "Categoría"))
-                .setItems(names.toArray(new String[0]), (d, which) -> {
-                    if (which < groups.size()) {
-                        cfg.setGroup(it.id, groups.get(which));
-                        apply();
-                    } else if (which == groups.size()) {
-                        newGroup(it);
-                    } else {
-                        cfg.setGroup(it.id, null);
-                        apply();
-                    }
-                })
-                .show();
+        List<Runnable> acts = new ArrayList<>();
+        for (String g : groups) acts.add(() -> { cfg.setGroup(it.id, g); apply(); });
+        acts.add(() -> newGroup(it));
+        if (current != null) acts.add(() -> { cfg.setGroup(it.id, null); apply(); });
+        sheet(Ui.t("Category", "Categoría"), names, acts);
     }
 
     private void newGroup(Item it) {
