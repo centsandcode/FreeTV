@@ -43,7 +43,7 @@ public final class Options extends Activity {
         scroll.addView(list);
 
         TextView title = Ui.text(this, 30, Ui.TEXT, Ui.LIGHT);
-        title.setText("Options");
+        title.setText(Ui.t("Options", "Opciones"));
         title.setPadding(dp(16), 0, 0, dp(20));
         list.addView(title);
 
@@ -64,7 +64,7 @@ public final class Options extends Activity {
         TextView about = Ui.text(this, 13, Ui.FAINT, Ui.MEDIUM);
         about.setLineSpacing(0, 1.4f);
         about.setPadding(dp(16), dp(28), 0, 0);
-        about.setText("Settings file: " + cfg.dir + "/" + Config.FILE
+        about.setText(Ui.t("Settings file: ", "Fichero de ajustes: ") + cfg.dir + "/" + Config.FILE
                 + "\nWallpaper: put wallpaper.jpg in that folder, then pick Background › Image file"
                 + "\nSeveral wallpapers: put them in " + Config.WALLPAPERS + "/ and pick a rotation"
                 + "\nNo internet permission. No tracking, no ads, no accounts.");
@@ -187,16 +187,17 @@ public final class Options extends Activity {
                 .setTitle(Catalog.APPS.equals(kind) ? "Apps on home screen" : "Inputs on home screen")
                 .setMultiChoiceItems(names, on, (d, which, checked) ->
                         Catalog.setShown(cfg, kind, items.get(which), checked))
-                .setPositiveButton("Done", null)
+                .setPositiveButton(Ui.t("Done", "Hecho"), null)
                 .show();
     }
 
     private void reset() {
         new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle("Reset the home screen layout?")
-                .setMessage("Order, names and hidden tiles go back to default. Colors and sizes stay.")
-                .setPositiveButton("Reset", (d, w) -> cfg.removePrefix("name.", "apps.", "inputs."))
-                .setNegativeButton("Cancel", null)
+                .setTitle(Ui.t("Reset the home screen layout?", "¿Restablecer la pantalla de inicio?"))
+                .setMessage(Ui.t("Order, names and hidden tiles go back to default. Colors and sizes stay.",
+                        "El orden, los nombres y lo oculto vuelven a su estado inicial. Los colores y los tamaños se mantienen."))
+                .setPositiveButton(Ui.t("Reset", "Restablecer"), (d, w) -> cfg.removePrefix("name.", "apps.", "inputs."))
+                .setNegativeButton(Ui.t("Cancel", "Cancelar"), null)
                 .show();
     }
 

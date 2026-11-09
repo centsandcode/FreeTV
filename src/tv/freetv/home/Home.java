@@ -785,11 +785,12 @@ public final class Home extends Activity {
             // nothing favorited yet: show everything rather than an empty home
             if (appRows.isEmpty()) addRow(ALL, "Apps", base, w, h);
         } else {
-            if (cfg.on(Config.RECENTS)) addRow(RECENT, Ui.t("Recent", "Recientes"), recent, w, h);
+            int gw = Math.round(w * 0.78f), gh = Math.round(h * 0.78f);
+            if (cfg.on(Config.RECENTS)) addRow(RECENT, Ui.t("Recent", "Recientes"), recent, gw, gh);
             for (Map.Entry<String, List<Item>> e : grouped.entrySet()) {
-                addRow("group:" + e.getKey(), e.getKey(), e.getValue(), w, h);
+                addGrid("group:" + e.getKey(), e.getKey(), e.getValue(), gw, gh);
             }
-            addRow(ALL, appRows.isEmpty() ? "Apps" : Ui.t("More apps", "Más apps"), rest, w, h);
+            addGrid(ALL, appRows.isEmpty() ? "Apps" : Ui.t("More apps", "Más apps"), rest, gw, gh);
         }
 
         if (home) addDrawerHint();
@@ -951,6 +952,33 @@ public final class Home extends Activity {
         View f = getCurrentFocus();
         if (!(f instanceof Tile)) return false;
         return appRows.get(appRows.size() - 1 - fromEnd).key.equals(rowOf((Tile) f));
+    }
+
+    /**
+     * The drawer lays apps out as a grid rather than one long row you scroll sideways: the
+     * point of opening it is to see what you have. Each line is a row with its title hidden,
+     * so focus, restore and the entry animation keep working unchanged.
+     */
+    private void addGrid(String key, String name, List<Item> items, int w, int h) {
+        if (items.isEmpty()) return;
+        int gap = dp(18), edge = dp(56);
+        int usable = getResources().getDisplayMetrics().widthPixels - 2 * edge;
+        int perRow = Math.max(1, (usable + gap) / (w + gap));
+        String labels = cfg.get(Config.LABELS);
+        for (int i = 0, line = 0; i < items.size(); i += perRow, line++) {
+            List<Item> chunk = items.subList(i, Math.min(items.size(), i + perRow));
+            Row row = new Row(line == 0 ? key : key + ":" + line, Catalog.APPS,
+                    line == 0 ? name : "", appsBox);
+            if (line > 0) row.title.setVisibility(View.GONE);
+            for (Item it : chunk) {
+                Tile t = tile(it, Catalog.APPS, w, h, labels);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
+                lp.rightMargin = gap;
+                row.strip.addView(t, lp);
+                if (!it.artRequested) loadArt(it);
+            }
+            appRows.add(row);
+        }
     }
 
     private void addRow(String key, String name, List<Item> items, int w, int h) {
@@ -1283,7 +1311,7 @@ public final class Home extends Activity {
         try {
             startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED));
         } catch (ActivityNotFoundException | SecurityException e) {
-            Toast.makeText(this, "Could not open that", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, Ui.t("Could not open that", "No se ha podido abrir"), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1294,7 +1322,7 @@ public final class Home extends Activity {
         List<String> names = new ArrayList<>();
         List<Runnable> actions = new ArrayList<>();
         if (movable) {
-            names.add("Move");
+            names.add(Ui.t("Move", "Mover"));
             actions.add(() -> {
                 if (t.getParent() == null) return;
                 moving = t;
@@ -1312,17 +1340,17 @@ public final class Home extends Activity {
             names.add(Ui.t("Category…", "Categoría…"));
             actions.add(() -> pickGroup(t.item));
         }
-        names.add("Rename");
+        names.add(Ui.t("Rename", "Cambiar el nombre"));
         actions.add(() -> rename(t));
-        names.add("Hide");
+        names.add(Ui.t("Hide", "Ocultar"));
         actions.add(() -> {
             Catalog.setShown(cfg, t.kind, t.item, false);
             if (app) renderApps();
             else render(inputs);
-            Toast.makeText(this, "Hidden. Bring it back from Options.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, Ui.t("Hidden. Bring it back from Options.", "Oculta. Puedes recuperarla desde Opciones."), Toast.LENGTH_SHORT).show();
         });
         if (app) {
-            names.add("App info");
+            names.add(Ui.t("App info", "Información de la app"));
             actions.add(() -> launch(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.fromParts("package", t.item.id, null)), null));
         }
@@ -1367,7 +1395,7 @@ public final class Home extends Activity {
                     cfg.setGroup(it.id, field.getText().toString());
                     apply();
                 })
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(Ui.t("Cancel", "Cancelar"), null)
                 .create();
         d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
         d.show();
@@ -1383,9 +1411,9 @@ public final class Home extends Activity {
         box.addView(field);
         String key = "name." + t.item.id;
         AlertDialog d = new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle("Rename")
+                .setTitle(Ui.t("Rename", "Cambiar el nombre"))
                 .setView(box)
-                .setPositiveButton("Save", (dialog, w) -> {
+                .setPositiveButton(Ui.t("Save", "Guardar"), (dialog, w) -> {
                     String name = field.getText().toString().trim();
                     cfg.set(key, name.equals(t.item.label.toString()) ? null : name);
                     apply();
@@ -1394,7 +1422,7 @@ public final class Home extends Activity {
                     cfg.set(key, null);
                     apply();
                 })
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton(Ui.t("Cancel", "Cancelar"), null)
                 .create();
         d.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
         d.show();
