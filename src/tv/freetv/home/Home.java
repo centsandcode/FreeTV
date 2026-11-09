@@ -16,6 +16,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
@@ -90,7 +92,7 @@ public final class Home extends Activity {
     private GradientDrawable glowDrawable;
     private TextView greeting, clock, date, stats;
     private LinearLayout column, quick, quickBox, appsBox;
-    private TextView drawerHandle;
+    private View scrim, barView;
     private String tab = TAB_HOME;
     private TextView navHome;
     private Row inputs;
@@ -318,11 +320,17 @@ public final class Home extends Activity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         if (moving == null) {
-            if (e.getAction() == KeyEvent.ACTION_DOWN
-                    && e.getKeyCode() == KeyEvent.KEYCODE_DPAD_UP
-                    && TAB_APPS.equals(tab) && inFirstDrawerRow()) {
-                closeDrawer();
-                return true;
+            if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                int code = e.getKeyCode();
+                if (code == KeyEvent.KEYCODE_DPAD_DOWN && TAB_HOME.equals(tab) && inRowFromEnd(0)) {
+                    openDrawer();
+                    return true;
+                }
+                if (code == KeyEvent.KEYCODE_DPAD_UP && TAB_APPS.equals(tab)
+                        && appRows.size() > 0 && inRowFromEnd(appRows.size() - 1)) {
+                    closeDrawer();
+                    return true;
+                }
             }
             return super.dispatchKeyEvent(e);
         }
@@ -379,8 +387,15 @@ public final class Home extends Activity {
             }
         };
         frame.setOrientation(LinearLayout.VERTICAL);
+        // dims the wallpaper while the drawer is open, so it reads as a sheet on top
+        scrim = new View(this);
+        scrim.setBackgroundColor(0xCC000000);
+        scrim.setAlpha(0f);
+        scrim.setVisibility(View.GONE);
+        root.addView(scrim, new FrameLayout.LayoutParams(MATCH, MATCH));
         root.addView(frame, new FrameLayout.LayoutParams(MATCH, MATCH));
-        frame.addView(bar(), new LinearLayout.LayoutParams(MATCH, WRAP));
+        barView = bar();
+        frame.addView(barView, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         page = new ScrollView(this) {
             /** Scrolls in whole rows: a row starts at the top edge, never cut in half. */
@@ -777,7 +792,7 @@ public final class Home extends Activity {
             addRow(ALL, appRows.isEmpty() ? "Apps" : Ui.t("More apps", "Más apps"), rest, w, h);
         }
 
-        if (home) addDrawerHandle();
+        if (home) addDrawerHint();
 
         View restore = null;
         if (keepId != null) {
@@ -814,56 +829,128 @@ public final class Home extends Activity {
         }
     }
 
+    /** A chevron drawn rather than typed: the glyph fonts have for this is not reliable. */
+    private final class Chevron extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+
+        Chevron(int color) {
+            super(Home.this);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(dp(2));
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            paint.setColor(color);
+        }
+
+        @Override
+        protected void onMeasure(int w, int h) {
+            setMeasuredDimension(dp(14), dp(9));
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float pad = dp(1.5f);
+            path.reset();
+            path.moveTo(pad, pad);
+            path.lineTo(getWidth() / 2f, getHeight() - pad);
+            path.lineTo(getWidth() - pad, pad);
+            c.drawPath(path, paint);
+        }
+    }
+
     /**
-     * The way into the drawer: a chevron under the last row of the home screen. Pressing it,
-     * or pressing down on it, opens everything the home screen does not show.
+     * Not a button: a hint under the last row that there are more apps below. Pressing down
+     * on the last row is what opens the drawer, so this only has to say so.
      */
-    private void addDrawerHandle() {
-        TextView v = new TextView(this);
-        v.setText("∨  " + Ui.t("apps", "apps"));
-        v.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        v.setLetterSpacing(0.18f);
-        v.setTextColor(0x99FFFFFF);
-        v.setGravity(Gravity.CENTER);
-        v.setPadding(dp(18), dp(10), dp(18), dp(10));
-        v.setFocusable(true);
-        v.setOnClickListener(x -> openDrawer());
-        v.setOnKeyListener((x, code, e) -> {
-            if (e.getAction() != KeyEvent.ACTION_DOWN) return false;
-            if (code == KeyEvent.KEYCODE_DPAD_DOWN || code == KeyEvent.KEYCODE_DPAD_CENTER
-                    || code == KeyEvent.KEYCODE_ENTER) {
-                openDrawer();
-                return true;
-            }
-            return false;
-        });
-        Ui.focusStyle(v, cfg.accent(), 0x00000000, dp(18));
+    private void addDrawerHint() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setFocusable(false);
+        box.setPadding(0, dp(14), 0, dp(6));
+
+        TextView label = new TextView(this);
+        label.setText(Ui.t("apps", "apps"));
+        label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        label.setLetterSpacing(0.22f);
+        label.setTextColor(0x66FFFFFF);
+        label.setIncludeFontPadding(false);
+
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
-        lp.gravity = Gravity.CENTER_HORIZONTAL;
-        lp.topMargin = dp(10);
-        drawerHandle = v;
-        appsBox.addView(v, lp);
+        lp.leftMargin = dp(8);
+        box.addView(new Chevron(0x66FFFFFF));
+        box.addView(label, lp);
+
+        LinearLayout.LayoutParams outer = new LinearLayout.LayoutParams(WRAP, WRAP);
+        outer.gravity = Gravity.CENTER_HORIZONTAL;
+        appsBox.addView(box, outer);
     }
 
     private void openDrawer() {
         setTab(TAB_APPS);
-        // the handle had the focus and is gone now, so place it rather than let
+        // the row that had the focus is gone now, so place it rather than let
         // the view hierarchy hand it to the nav chips
+        focusFirst();
+        sheet(true);
+    }
+
+    /** Back out of the drawer, landing on the row that opened it. */
+    private void closeDrawer() {
+        sheet(false);
+        setTab(TAB_HOME);
+        for (int i = appRows.size() - 1; i >= 0; i--) {
+            Row r = appRows.get(i);
+            if (r.strip.getChildCount() > 0) {
+                r.strip.getChildAt(0).requestFocus();
+                return;
+            }
+        }
         focusFirst();
     }
 
-    /** Back out of the drawer, landing on the handle that opened it. */
-    private void closeDrawer() {
-        setTab(TAB_HOME);
-        if (drawerHandle != null) drawerHandle.requestFocus();
+    /**
+     * Makes the drawer read as a sheet over the home screen: the wallpaper dims, the header
+     * steps back, and the rows ride up on a panel with a lip at the top.
+     */
+    private void sheet(boolean open) {
+        scrim.animate().cancel();
+        if (open) {
+            scrim.setVisibility(View.VISIBLE);
+            scrim.animate().alpha(1f).setDuration(220).start();
+        } else {
+            scrim.animate().alpha(0f).setDuration(180)
+                    .withEndAction(() -> scrim.setVisibility(View.GONE)).start();
+        }
+        barView.animate().cancel();
+        barView.animate().alpha(open ? 0.35f : 1f).setDuration(open ? 220 : 180).start();
+
+        if (open) {
+            GradientDrawable panel = new GradientDrawable();
+            panel.setColor(0xF2141418);
+            float r = dp(22);
+            panel.setCornerRadii(new float[] {r, r, r, r, 0, 0, 0, 0});
+            column.setBackground(panel);
+            column.setPadding(0, dp(20), 0, dp(28));
+            column.setTranslationY(dp(40));
+            column.setAlpha(0f);
+            column.animate().translationY(0f).alpha(1f).setDuration(260)
+                    .setInterpolator(new DecelerateInterpolator(2f)).start();
+        } else {
+            column.animate().cancel();
+            column.setBackground(null);
+            column.setPadding(0, 0, 0, 0);
+            column.setTranslationY(0f);
+            column.setAlpha(1f);
+        }
     }
 
-    /** True while the focus is somewhere in the drawer's first row, where up means close. */
-    private boolean inFirstDrawerRow() {
-        if (appRows.isEmpty()) return false;
+    /** True while the focus sits in {@code row} of the current rows, counted from the end. */
+    private boolean inRowFromEnd(int fromEnd) {
+        if (appRows.size() <= fromEnd) return false;
         View f = getCurrentFocus();
         if (!(f instanceof Tile)) return false;
-        return appRows.get(0).key.equals(rowOf((Tile) f));
+        return appRows.get(appRows.size() - 1 - fromEnd).key.equals(rowOf((Tile) f));
     }
 
     private void addRow(String key, String name, List<Item> items, int w, int h) {
