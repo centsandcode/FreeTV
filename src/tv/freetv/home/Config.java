@@ -54,45 +54,49 @@ final class Config {
         }
     }
 
-    static final Choice ACCENT = new Choice("accent", "Accent color", "blue",
+    static final Choice ACCENT = new Choice("accent", Ui.t("Accent color", "Color de acento"), "blue",
             new String[] {"white", "blue", "cyan", "green", "amber", "red", "pink", "violet"},
-            new String[] {"White", "Blue", "Cyan", "Green", "Amber", "Red", "Pink", "Violet"});
-    static final Choice TILES = new Choice("tiles", "Tile size", "medium",
+            new String[] {Ui.t("White", "Blanco"), Ui.t("Blue", "Azul"), Ui.t("Cyan", "Cian"),
+                Ui.t("Green", "Verde"), Ui.t("Amber", "Ámbar"), Ui.t("Red", "Rojo"), Ui.t("Pink", "Rosa"),
+                Ui.t("Violet", "Violeta")});
+    static final Choice TILES = new Choice("tiles", Ui.t("Tile size", "Tamaño de las fichas"), "medium",
             new String[] {"small", "medium", "large"},
-            new String[] {"Small", "Medium", "Large"});
-    static final Choice LABELS = new Choice("labels", "App names", "focus",
+            new String[] {Ui.t("Small", "Pequeño"), Ui.t("Medium", "Mediano"), Ui.t("Large", "Grande")});
+    static final Choice LABELS = new Choice("labels", Ui.t("App names", "Nombres de las apps"), "focus",
             new String[] {"focus", "always", "never"},
-            new String[] {"On focus", "Always", "Never"});
-    static final Choice CLOCK = new Choice("clock", "Clock", "auto",
+            new String[] {Ui.t("On focus", "Al enfocar"), Ui.t("Always", "Siempre"), Ui.t("Never", "Nunca")});
+    static final Choice CLOCK = new Choice("clock", Ui.t("Clock", "Reloj"), "auto",
             new String[] {"auto", "24h", "12h"},
-            new String[] {"System", "24-hour", "12-hour"});
-    static final Choice INPUTS = new Choice("inputs", "Inputs row", "on",
+            new String[] {Ui.t("System", "Del sistema"), Ui.t("24-hour", "24 horas"), Ui.t("12-hour", "12 horas")});
+    static final Choice INPUTS = new Choice("inputs", Ui.t("Inputs row", "Fila de entradas"), "on",
             new String[] {"on", "off"},
-            new String[] {"Shown", "Hidden"});
+            new String[] {Ui.t("Shown", "Visible"), Ui.t("Hidden", "Oculta")});
     // defaults to the bundled wallpapers: they ship in the APK and are unpacked on first run
-    static final Choice BACKGROUND = new Choice("background", "Background", "image",
+    static final Choice BACKGROUND = new Choice("background", Ui.t("Background", "Fondo"), "image",
             new String[] {"black", "graphite", "midnight", "image"},
-            new String[] {"Black", "Graphite", "Midnight", "Image file"});
-    static final Choice DIM = new Choice("dim", "Image dim", "40",
+            new String[] {Ui.t("Black", "Negro"), Ui.t("Graphite", "Grafito"), Ui.t("Midnight", "Medianoche"), Ui.t("Image file", "Imagen")});
+    static final Choice DIM = new Choice("dim", Ui.t("Image dim", "Oscurecer la imagen"), "40",
             new String[] {"0", "20", "40", "60", "80"},
             new String[] {"0%", "20%", "40%", "60%", "80%"});
 
-    static final Choice ROTATE = new Choice("rotate", "Wallpaper rotation", "off",
+    static final Choice ROTATE = new Choice("rotate", Ui.t("Wallpaper rotation", "Cambio de fondo"), "off",
             new String[] {"off", "visit", "hourly", "daily", "daytime"},
-            new String[] {"Off", "Every return home", "Every hour", "Every day", "By time of day"});
-    static final Choice HERO = onOff("hero", "Continue card");
-    static final Choice RECENTS = onOff("recents", "Recent apps row");
-    static final Choice GREETING = onOff("greeting", "Greeting");
-    static final Choice STATS = onOff("stats", "Free memory and storage");
-    static final Choice QUICK = onOff("quick", "Quick settings");
-    static final Choice AMBIENT = onOff("ambient", "Ambient color");
-    static final Choice PLAYING = onOff("playing", "Now playing");
+            new String[] {Ui.t("Off", "No"), Ui.t("Every return home", "Al volver al inicio"),
+                Ui.t("Every hour", "Cada hora"), Ui.t("Every day", "Cada día"),
+                Ui.t("By time of day", "Según la hora del día")});
+    static final Choice HERO = onOff("hero", Ui.t("Continue card", "Tarjeta Continuar"));
+    static final Choice RECENTS = onOff("recents", Ui.t("Recent apps row", "Fila de recientes"));
+    static final Choice GREETING = onOff("greeting", Ui.t("Greeting", "Saludo"));
+    static final Choice STATS = onOff("stats", Ui.t("Free memory and storage", "Memoria y espacio libres"));
+    static final Choice QUICK = onOff("quick", Ui.t("Quick settings", "Ajustes rápidos"));
+    static final Choice AMBIENT = onOff("ambient", Ui.t("Ambient color", "Color ambiental"));
+    static final Choice PLAYING = onOff("playing", Ui.t("Now playing", "Sonando ahora"));
 
     static final Choice[] CHOICES = {ACCENT, TILES, LABELS, CLOCK, INPUTS, BACKGROUND, DIM, ROTATE,
         HERO, RECENTS, GREETING, STATS, QUICK, AMBIENT, PLAYING};
 
     private static Choice onOff(String key, String title) {
-        return new Choice(key, title, "on", new String[] {"on", "off"}, new String[] {"On", "Off"});
+        return new Choice(key, title, "on", new String[] {"on", "off"}, new String[] {Ui.t("On", "Sí"), Ui.t("Off", "No")});
     }
 
     boolean on(Choice c) {

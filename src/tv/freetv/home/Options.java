@@ -48,15 +48,16 @@ public final class Options extends Activity {
         list.addView(title);
 
         for (Config.Choice c : Config.CHOICES) list.addView(choice(c));
-        list.addView(action("Next wallpaper", () -> {
+        list.addView(action(Ui.t("Next wallpaper", "Siguiente fondo"), () -> {
             cfg.nextWallpaper();
             refresh();
         }));
         list.addView(gap());
-        list.addView(action("Apps on home screen", () -> pick(Catalog.APPS)));
-        list.addView(action("Inputs on home screen", () -> pick(Catalog.INPUTS)));
-        list.addView(action("Reset order, names and hidden tiles", this::reset));
-        list.addView(action("Open Amazon's home screen", () -> {
+        list.addView(action(appsTitle(Catalog.APPS), () -> pick(Catalog.APPS)));
+        list.addView(action(appsTitle(Catalog.INPUTS), () -> pick(Catalog.INPUTS)));
+        list.addView(action(Ui.t("Reset order, names and hidden tiles",
+                "Restablecer orden, nombres y fichas ocultas"), this::reset));
+        list.addView(action(Ui.t("Open Amazon's home screen", "Abrir la pantalla de inicio de Amazon"), () -> {
             Guard.amazon(this);
             finish();
         }));
@@ -65,9 +66,12 @@ public final class Options extends Activity {
         about.setLineSpacing(0, 1.4f);
         about.setPadding(dp(16), dp(28), 0, 0);
         about.setText(Ui.t("Settings file: ", "Fichero de ajustes: ") + cfg.dir + "/" + Config.FILE
-                + "\nWallpaper: put wallpaper.jpg in that folder, then pick Background › Image file"
-                + "\nSeveral wallpapers: put them in " + Config.WALLPAPERS + "/ and pick a rotation"
-                + "\nNo internet permission. No tracking, no ads, no accounts.");
+                + Ui.t("\nWallpaper: put wallpaper.jpg in that folder, then pick Background › Image file",
+                        "\nFondo: pon wallpaper.jpg en esa carpeta y elige Fondo › Imagen")
+                + Ui.t("\nSeveral wallpapers: put them in ", "\nVarios fondos: ponlos en ") + Config.WALLPAPERS
+                + Ui.t("/ and pick a rotation", "/ y elige un cambio de fondo")
+                + Ui.t("\nNo internet permission. No tracking, no ads, no accounts.",
+                        "\nSin permiso de internet. Sin rastreo, sin anuncios, sin cuentas."));
         list.addView(about);
 
         setContentView(scroll);
@@ -184,11 +188,17 @@ public final class Options extends Activity {
             on[i] = Catalog.shown(cfg, kind, items.get(i));
         }
         new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle(Catalog.APPS.equals(kind) ? "Apps on home screen" : "Inputs on home screen")
+                .setTitle(appsTitle(kind))
                 .setMultiChoiceItems(names, on, (d, which, checked) ->
                         Catalog.setShown(cfg, kind, items.get(which), checked))
                 .setPositiveButton(Ui.t("Done", "Hecho"), null)
                 .show();
+    }
+
+    private static String appsTitle(String kind) {
+        return Catalog.APPS.equals(kind)
+                ? Ui.t("Apps on home screen", "Apps en la pantalla de inicio")
+                : Ui.t("Inputs on home screen", "Entradas en la pantalla de inicio");
     }
 
     private void reset() {
