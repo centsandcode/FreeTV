@@ -46,10 +46,12 @@ installing anything.
    turn on **ADB debugging**, and note the IP address from About → Network.
 2. Run the installer, then accept the "Allow USB debugging" prompt on the TV the first time:
 
-   **Windows (PowerShell)**
+   **Windows (PowerShell)**, from the FreeTV folder:
    ```powershell
-   .\install.ps1 -Tv 192.168.1.50
+   powershell -ExecutionPolicy Bypass -File .\install.ps1 -Tv 192.168.1.50
    ```
+   `-ExecutionPolicy Bypass` applies to this run only. Without it, Windows refuses to run downloaded
+   scripts ("running scripts is disabled on this system").
 
    **macOS / Linux**
    ```sh
@@ -72,7 +74,7 @@ If you would rather not trust a prebuilt APK, build and sign it with your own ke
 JDK 17+ and the Android SDK build-tools on top of `adb`:
 
 ```powershell
-.\install.ps1 -Tv 192.168.1.50 -Build   # Windows
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Tv 192.168.1.50 -Build   # Windows
 ```
 
 ```sh
@@ -128,7 +130,8 @@ FreeTV es una pantalla de inicio para Fire TV sin anuncios ni rastreo, basada en
 cambian según la hora, color ambiental y "Sonando ahora". Trae seis fondos incluidos y marca como
 favoritas las apps de streaming que ya tengas instaladas. Solo hace falta `adb` y un ordenador en la misma red: el instalador descarga el APK publicado y
 comprueba su SHA-256 antes de instalar nada. Desde Windows:
-`.\install.ps1 -Tv <ip-de-la-tele>`. Si prefieres compilarlo tú, añade `-Build`.
+`powershell -ExecutionPolicy Bypass -File .\install.ps1 -Tv <ip-de-la-tele>` (sin `-ExecutionPolicy Bypass`,
+Windows bloquea los scripts descargados). Si prefieres compilarlo tú, añade `-Build`.
 
 ## License
 
