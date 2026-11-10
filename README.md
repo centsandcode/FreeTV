@@ -15,7 +15,8 @@ DNS filter, use dumbtv: FreeTV is only the launcher.
 
 - **Continue**: the last app you opened, large, at the top. Press OK to jump back in.
 - **Favorites** with larger tiles, and **Recent** apps.
-- **Tabs**: Home shows what you watch; Apps holds everything else, your categories, HDMI inputs and quick settings.
+- **App drawer**: Home keeps Continue and Favorites; press down for everything else in a grid, with
+  your categories, HDMI inputs and quick settings.
 - **Categories**: group apps into rows (tile menu → Category…).
 - **Ambient color**: a soft glow in the focused app's color.
 - **Wallpapers**: six are bundled and unpacked on the first run, two for each time of day, and
@@ -28,14 +29,31 @@ DNS filter, use dumbtv: FreeTV is only the launcher.
 - **Header**: greeting, free memory and storage, clock, and **Now playing** with pause and next.
 - **Quick settings**: Wi-Fi, remotes and Bluetooth, apps, all settings.
 - **Animations** tuned for a Fire TV Stick: rows scroll whole, the focused tile stays centered.
-- Home screen text in Spanish or English, following the TV's language (Options is in English).
+- Spanish or English, following the TV's language.
 
-Everything can be turned off in **Options**. The APK is about 50 KB, plain Java with no libraries,
-and requests **no permissions**.
+Everything can be turned off in **Options**. The APK is about 600 KB, almost all of it the bundled
+wallpapers; it is plain Java with no libraries, and requests **no permissions**.
 
 ![Apps](docs/apps.png)
 
 ## Install
+
+> **Guía en español paso a paso:** [más abajo](#en-español).
+
+### The easy way (Windows)
+
+1. On the TV, once: Settings → My Fire TV → About, press OK on the device name 7 times. Then in
+   My Fire TV → Developer options turn on **ADB debugging**.
+2. On the computer: download this repository (green **Code** button → **Download ZIP**), unzip it,
+   and double-click **`Install FreeTV.cmd`**.
+3. Accept the "Allow USB debugging" prompt when it shows up on the TV.
+
+The installer downloads `adb` from Google if you don't have it, finds the TV on your network by
+itself (or asks for its IP), waits for you to accept the prompt, and installs FreeTV. Nothing to type.
+If Windows warns that the file comes from the internet, choose **Run** (or **More info → Run
+anyway**): the installer is a plain script and is not signed.
+
+### From a terminal
 
 All you need is a computer on the same network as the TV and
 [Android platform-tools](https://developer.android.com/tools/releases/platform-tools) (`adb`).
@@ -126,12 +144,58 @@ adb push my-photo.jpg /sdcard/Android/data/tv.freetv.home/files/wallpapers/
 ## En español
 
 FreeTV es una pantalla de inicio para Fire TV sin anuncios ni rastreo, basada en el launcher de
-[dumbtv](https://github.com/humblemuzzu/dumbtv). Añade "Continuar", favoritas, pestañas, categorías, fondos que
-cambian según la hora, color ambiental y "Sonando ahora". Trae seis fondos incluidos y marca como
-favoritas las apps de streaming que ya tengas instaladas. Solo hace falta `adb` y un ordenador en la misma red: el instalador descarga el APK publicado y
-comprueba su SHA-256 antes de instalar nada. Desde Windows:
-`powershell -ExecutionPolicy Bypass -File .\install.ps1 -Tv <ip-de-la-tele>` (sin `-ExecutionPolicy Bypass`,
-Windows bloquea los scripts descargados). Si prefieres compilarlo tú, añade `-Build`.
+[dumbtv](https://github.com/humblemuzzu/dumbtv). Añade "Continuar", favoritas, un cajón con el resto de
+apps, categorías, fondos que cambian según la hora, color ambiental y "Sonando ahora". Trae seis fondos
+incluidos y marca como favoritas las apps de streaming que ya tengas instaladas. No necesita root ni
+pide permisos.
+
+### Cómo instalarlo (Windows, unos 5 minutos)
+
+**En la tele (solo la primera vez)**
+
+1. Ve a **Ajustes** (el engranaje, a la derecha del todo en la pantalla de inicio) → **Mi Fire TV** →
+   **Acerca de**.
+2. Ponte encima del nombre del dispositivo (por ejemplo "Fire TV Stick") y pulsa **OK siete veces**
+   seguidas, hasta que aparezca un aviso de que ya eres desarrollador.
+3. Vuelve atrás a **Mi Fire TV**. Ahora hay una opción nueva: **Opciones para desarrolladores**. Entra
+   y activa **Depuración ADB**. Si te pregunta si estás seguro, di que sí.
+
+**En el ordenador**
+
+4. Comprueba que el ordenador y la tele están conectados **a la misma red Wi-Fi** (o al mismo router).
+5. En esta página, pulsa el botón verde **Code** → **Download ZIP**. Abre el ZIP descargado y pulsa
+   **Extraer todo**.
+6. En la carpeta extraída, haz **doble clic en `Install FreeTV.cmd`**. Si Windows avisa de que el
+   archivo viene de internet, pulsa **Ejecutar** (o **Más información → Ejecutar de todas formas**).
+7. Se abre una ventana que te guía: pulsa Enter, y el instalador descarga lo que necesita (la
+   herramienta `adb` de Google, unos 7 MB) y **busca la tele en tu red él solo**.
+
+**De nuevo en la tele**
+
+8. Aparecerá el aviso **"¿Permitir la depuración USB?"**. Marca **"Permitir siempre desde este
+   ordenador"** y pulsa **Aceptar**. La ventana del ordenador sigue sola.
+9. Cuando diga **"Listo!"**, pulsa **Inicio** en el mando: ya tienes FreeTV.
+
+**Si no encuentra la tele**
+
+La ventana te pedirá su dirección IP. En la tele: **Ajustes → Mi Fire TV → Acerca de → Red**, y apunta la
+**Dirección IP** (algo como `192.168.1.50`). Si aun así no conecta, comprueba que **Depuración ADB** sigue
+activada y que los dos aparatos están en la misma red.
+
+**Para quitarlo**
+
+Para volver a ver la pantalla de Amazon un momento, desde **Opciones** de FreeTV elige abrir la pantalla
+de inicio de Amazon. Para quitar FreeTV del todo, haz clic derecho en un hueco de la carpeta →
+**Abrir en terminal**, y escribe:
+`powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Uninstall`
+
+**Bueno saber**
+
+- "Continuar" y "Recientes" solo recuerdan las apps que abres desde FreeTV: si abres algo con Alexa, no
+  aparece ahí.
+- Si tras una actualización de Fire OS vuelve a salir la pantalla de Amazon, vuelve a hacer doble clic en
+  `Install FreeTV.cmd`.
+- ¿Prefieres terminal o compilarlo tú? Mira la sección [From a terminal](#from-a-terminal) más arriba.
 
 ## License
 

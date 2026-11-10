@@ -51,8 +51,10 @@ function Set-Futurity([bool]$on) {
 # Puts $svc (or nothing) in place of any launcher's service, keeping every other service.
 function Set-Guard([string]$svc) {
   $cur = (sh_ "settings get secure enabled_accessibility_services").Trim()
+  # '""' is the placeholder the clearing step below leaves behind: never carry it over, its quotes
+  # would also break the command line Windows PowerShell builds for adb
   $keep = @(if ($cur -ne "null" -and $cur) {
-    $cur.Split(':') | Where-Object { $_ -and $_ -ne $GUARD -and $OLD_GUARDS -notcontains $_ } })
+    $cur.Split(':') | Where-Object { $_ -and $_ -ne '""' -and $_ -ne $GUARD -and $OLD_GUARDS -notcontains $_ } })
   if ($svc) { $keep += $svc }
   # clearing first makes the accessibility manager rebind a service whose process died
   sh_ "settings put secure enabled_accessibility_services '\`"\`"'"
@@ -69,7 +71,8 @@ if ($Undo) {
   Set-Futurity $false
   Set-Guard ""
   sh_ "cmd notification disallow_listener $MEDIA" | Out-Null
-  sh_ "am start -a android.intent.action.MAIN -c android.intent.category.HOME" | Out-Null
+  # silenced on the TV side: "Activity not started, brought to the front" is not an error here
+  sh_ "am start -a android.intent.action.MAIN -c android.intent.category.HOME >/dev/null 2>&1" | Out-Null
   "HOME handed back to Amazon's launcher (FreeTV stays installed: adb uninstall $PKG)"
   return
 }
