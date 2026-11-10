@@ -31,8 +31,11 @@ public final class Guard extends AccessibilityService {
     private static final String AMAZON_HOME = "com.amazon.tv.launcher.ui.HomeActivity_vNext";
     private static final long COVER_MAX_MS = 1500;
     private static final long REPEAT_MS = 1000;
+    /** How long the window events of the arrival that {@link #pause} asked for keep coming. */
+    private static final long ARRIVAL_MS = 4000;
 
     private static volatile boolean paused;
+    private static volatile long pausedAt;
     private static Guard running;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -40,8 +43,14 @@ public final class Guard extends AccessibilityService {
     private View cover;
     private long lastLaunch;
 
-    /** Lets Amazon's home stay on screen until the user leaves it. */
+    /**
+     * Lets Amazon's home stay on screen until the user leaves it. Fire OS does not always report
+     * the app they leave for, so the next time Amazon's home comes up again (HOME pressed later)
+     * ends the pause too: moving around inside Amazon's home sends no window events. Neither does
+     * HOME pressed while Amazon's home is already in front, so that one press leaves it there.
+     */
     static void pause() {
+        pausedAt = SystemClock.uptimeMillis();
         paused = true;
     }
 
@@ -116,8 +125,12 @@ public final class Guard extends AccessibilityService {
             if (!getPackageName().contentEquals(pkg)) arrived(this);
             return;
         }
-        if (paused || cls == null || !AMAZON_HOME.contentEquals(cls)) return;
+        if (cls == null || !AMAZON_HOME.contentEquals(cls)) return;
         long now = SystemClock.uptimeMillis();
+        if (paused) {
+            if (now - pausedAt < ARRIVAL_MS) return;
+            paused = false;
+        }
         if (now - lastLaunch < REPEAT_MS) return;
         lastLaunch = now;
         cover();
