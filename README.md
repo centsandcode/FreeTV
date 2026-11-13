@@ -9,7 +9,7 @@ by [@DevMuzzammil](https://x.com/DevMuzzammil). The hard part, taking over the H
 is his work; FreeTV builds a richer home screen on top of it. If you want the debloat scripts and the
 DNS filter, use dumbtv: FreeTV is only the launcher.
 
-![Home](docs/home.png)
+![The home screen: Continue, Favorites, and the app drawer waiting below](docs/home.png)
 
 ## What it adds
 
@@ -34,7 +34,7 @@ DNS filter, use dumbtv: FreeTV is only the launcher.
 Everything can be turned off in **Options**. The APK is about 600 KB, almost all of it the bundled
 wallpapers; it is plain Java with no libraries, and requests **no permissions**.
 
-![Apps](docs/apps.png)
+![The app drawer, opened by pressing down from Favorites](docs/apps.png)
 
 ## Install
 
